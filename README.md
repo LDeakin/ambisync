@@ -3,8 +3,9 @@
 Write the async form once; `#[ambisync]` derives the sync variant mechanically.
 
 Libraries that ship both sync and async APIs maintain parallel code paths.
-These paths are identical except for `.await` points, item names (for example, `read` / `async_read` and `Store` / `AsyncStore`), test attributes, and feature gates.
-`ambisync` collapses each such pair into a single async-written item:
+These paths are often identical except for `.await` points, item names (for example, `read` / `async_read` and `Store` / `AsyncStore`), test attributes, and feature gates.
+`ambisync` can collapse a sync and async `fn`, `trait`, `impl`, `struct`, `enum`, or test into into a single async-written item.
+For example:
 
 ```rust
 use ambisync::ambisync;
@@ -31,7 +32,6 @@ pub fn read(store: &Store, key: &str) -> Option<Vec<u8>> {
 }
 ```
 
-The source stays real, compilable async code that rust-analyzer and rustfmt understand.
 `#[ambisync]` covers `fn`, `trait`, `impl`, `struct`, `enum`, and tests, with:
 
 - explicit naming via exact names or `fn_pattern` / `type_pattern` conventions;
@@ -42,12 +42,6 @@ The source stays real, compilable async code that rust-analyzer and rustfmt unde
 - `async_trait` emission with configurable `Send`-ness for wasm targets.
 
 See the [crate documentation](https://docs.rs/ambisync) for the full guide.
-
-## Workspace layout
-
-- [`ambisync/`](ambisync/): facade crate: macro re-exports and marker macros.
-- [`ambisync_macros/`](ambisync_macros/): the proc-macro implementation: one `syn::visit_mut`-based rewriter run once per variant over a cloned item.
-- [`ambisync_tests/`](ambisync_tests/): integration tests with real `async` and `sync` features, exercising the emitted cfg gates under every feature combination.
 
 ## Licence
 `ambisync` is licensed under either of
