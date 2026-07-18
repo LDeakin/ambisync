@@ -27,6 +27,9 @@ pub struct SubstTable {
     idents: Vec<(String, Ident)>,
     /// Call renames: async (source) name → sync name.
     calls: Vec<(String, Ident)>,
+    /// Textual spellings of `paths` and `calls` entries, applied to doc
+    /// comments at identifier boundaries (`[`AsyncStore`]` → `[`Store`]`).
+    doc_texts: Vec<(String, String)>,
 }
 
 impl SubstTable {
@@ -39,6 +42,9 @@ impl SubstTable {
             table
                 .calls
                 .push((swap.async_.to_string(), swap.sync.clone()));
+            table
+                .doc_texts
+                .push((swap.async_.to_string(), swap.sync.to_string()));
         }
         table
     }
@@ -59,10 +65,13 @@ impl SubstTable {
         }
 
         let path_entry = (from.path.clone(), to.path.clone());
+        let doc_entry = (path_doc_text(&from.path), path_doc_text(&to.path));
         if first {
             self.paths.insert(0, path_entry);
+            self.doc_texts.insert(0, doc_entry);
         } else {
             self.paths.push(path_entry);
+            self.doc_texts.push(doc_entry);
         }
 
         if from.path.leading_colon.is_none()
@@ -101,6 +110,7 @@ impl SubstTable {
     pub fn add_item_call(&mut self, from: &Ident, to: &Ident) {
         if from != to {
             self.calls.insert(0, (from.to_string(), to.clone()));
+            self.doc_texts.insert(0, (from.to_string(), to.to_string()));
         }
     }
 
@@ -109,6 +119,9 @@ impl SubstTable {
     pub fn add_auto_call(&mut self, from: &Ident, to: &Ident) {
         // User-provided `sync(calls(...))` entries were added first and win.
         self.calls.push((from.to_string(), to.clone()));
+        if from != to {
+            self.doc_texts.push((from.to_string(), to.to_string()));
+        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -243,6 +256,60 @@ impl SubstTable {
         }
         out.into_iter().collect()
     }
+
+    /// Substitute the table's spellings inside doc comment text, matching at
+    /// identifier boundaries just like the code rewrites: `paths` entries
+    /// (including module-qualified ones) and `calls` renames. A match must not
+    /// be preceded by an identifier character or `::` (a longer path), and
+    /// must not be followed by an identifier character; a trailing `::` is
+    /// fine, mirroring path prefix substitution (`AsyncStore::new`).
+    pub fn rewrite_doc_text(&self, text: &str) -> Option<String> {
+        if self.doc_texts.is_empty() {
+            return None;
+        }
+        let mut out = String::with_capacity(text.len());
+        let mut rest = text;
+        let mut prev: Option<char> = None;
+        let mut changed = false;
+        'outer: while !rest.is_empty() {
+            let boundary = prev.is_none_or(|c| !is_ident_char(c) && c != ':');
+            if boundary {
+                for (from, to) in &self.doc_texts {
+                    if rest.starts_with(from.as_str())
+                        && rest[from.len()..]
+                            .chars()
+                            .next()
+                            .is_none_or(|c| !is_ident_char(c))
+                    {
+                        out.push_str(to);
+                        rest = &rest[from.len()..];
+                        prev = from.chars().next_back();
+                        changed = true;
+                        continue 'outer;
+                    }
+                }
+            }
+            let ch = rest.chars().next().expect("rest is non-empty");
+            out.push(ch);
+            rest = &rest[ch.len_utf8()..];
+            prev = Some(ch);
+        }
+        changed.then_some(out)
+    }
+}
+
+fn is_ident_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
+/// A path's doc-comment spelling: its token string with whitespace removed
+/// (`mod_x :: AsyncThing` → `mod_x::AsyncThing`).
+fn path_doc_text(path: &Path) -> String {
+    path.to_token_stream()
+        .to_string()
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect()
 }
 
 fn path_segment_matches((actual, pattern): (&PathSegment, &PathSegment)) -> bool {
@@ -286,4 +353,41 @@ pub fn strip_awaits_in_tokens(tokens: TokenStream) -> TokenStream {
         }
     }
     out.into_iter().collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SubstTable;
+    use syn::Type;
+
+    fn table(from: &str, to: &str) -> SubstTable {
+        let mut table = SubstTable::default();
+        let from: Type = syn::parse_str(from).unwrap();
+        let to: Type = syn::parse_str(to).unwrap();
+        table.register_type(&from, &to, false);
+        table
+    }
+
+    #[test]
+    fn doc_text_matches_at_identifier_boundaries() {
+        let table = table("AsyncStore", "Store");
+        assert_eq!(
+            table.rewrite_doc_text("[`AsyncStore`], AsyncStore::new, Vec<AsyncStore>"),
+            Some("[`Store`], Store::new, Vec<Store>".into())
+        );
+        // No partial identifiers, no mid-path matches.
+        assert_eq!(table.rewrite_doc_text("AsyncStoreExt"), None);
+        assert_eq!(table.rewrite_doc_text("MyAsyncStore"), None);
+        assert_eq!(table.rewrite_doc_text("other::AsyncStore"), None);
+    }
+
+    #[test]
+    fn doc_text_matches_module_qualified_paths() {
+        let table = table("mod_x::AsyncThing", "mod_y::Thing");
+        assert_eq!(
+            table.rewrite_doc_text("see [`mod_x::AsyncThing`] and mod_x::AsyncThing::new"),
+            Some("see [`mod_y::Thing`] and mod_y::Thing::new".into())
+        );
+        assert_eq!(table.rewrite_doc_text("outer::mod_x::AsyncThing"), None);
+    }
 }

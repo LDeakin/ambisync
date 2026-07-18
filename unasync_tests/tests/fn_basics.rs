@@ -220,6 +220,46 @@ async fn async_trait_object_param_verbatim() {
     assert_eq!(async_partial_decode(&handle, 100).await, 108);
 }
 
+// Module-qualified substitutions: the async and sync spellings may live in
+// different modules (`mod_x::AsyncThing => mod_y::Thing`), in type position
+// and in expression paths.
+pub mod mod_x {
+    pub struct AsyncThing(pub u32);
+    impl AsyncThing {
+        pub async fn value(&self) -> u32 {
+            self.0
+        }
+    }
+}
+pub mod mod_y {
+    pub struct Thing(pub u32);
+    impl Thing {
+        pub fn value(&self) -> u32 {
+            self.0 + 1
+        }
+    }
+}
+
+#[dual(
+    sync(name = "module_qualified", types(mod_x::AsyncThing => mod_y::Thing)),
+    async(feature = "async"),
+)]
+async fn async_module_qualified(seed: u32) -> u32 {
+    let thing: mod_x::AsyncThing = mod_x::AsyncThing(seed);
+    thing.value().await
+}
+
+#[test]
+fn sync_module_qualified_types_substituted() {
+    assert_eq!(module_qualified(5), 6);
+}
+
+#[cfg(feature = "async")]
+#[tokio::test]
+async fn async_module_qualified_types_verbatim() {
+    assert_eq!(async_module_qualified(5).await, 5);
+}
+
 // sync_attr/async_attr passthrough.
 #[dual(sync(pattern = "async_{}"), async(feature = "async"))]
 #[sync_attr(allow(clippy::unused_unit))]

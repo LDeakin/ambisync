@@ -150,3 +150,50 @@ fn sync_generic_trait_impl_target_is_substituted() {
 async fn async_generic_trait_impl_is_unchanged() {
     assert_eq!(AsyncGenericHolder(8_u32).async_take().await, 8);
 }
+
+// Per-variant trait members: default-bodied helpers kept in one variant only.
+#[dual(
+    sync(pattern = "async_{}", type_pattern = "Async{}"),
+    async(feature = "async")
+)]
+pub trait AsyncTuning {
+    async fn async_size(&self) -> u32;
+
+    #[sync_only]
+    fn threads(&self) -> u32 {
+        4
+    }
+
+    #[async_only]
+    fn concurrency(&self) -> u32 {
+        8
+    }
+}
+
+pub struct Tuned;
+
+impl Tuning for Tuned {
+    fn size(&self) -> u32 {
+        1
+    }
+}
+
+#[cfg(feature = "async")]
+impl AsyncTuning for Tuned {
+    async fn async_size(&self) -> u32 {
+        2
+    }
+}
+
+#[test]
+fn sync_only_trait_members_kept() {
+    assert_eq!(Tuned.size() + Tuned.threads(), 5);
+    // `Tuning` has no `concurrency`: it is async-only.
+}
+
+#[cfg(feature = "async")]
+#[tokio::test]
+async fn async_only_trait_members_kept() {
+    assert_eq!(Tuned.async_size().await + Tuned.concurrency(), 10);
+    // `AsyncTuning` has no `threads`: it is sync-only.
+}

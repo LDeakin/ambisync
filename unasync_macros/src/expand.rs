@@ -6,7 +6,7 @@ use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
 use syn::visit_mut::VisitMut;
 use syn::{
-    AttrStyle, Attribute, Fields, Ident, ImplItem, Item, ItemMod, LitStr, Meta, TraitItem, Type,
+    AttrStyle, Attribute, Fields, Ident, ImplItem, Item, ItemMod, LitStr, Meta, TraitItem,
     parse_quote,
 };
 
@@ -259,9 +259,6 @@ fn emit_variant(
             } else {
                 table.add_item_call(&source_name, &async_name);
                 func.sig.ident = async_name;
-                if cfg.sync.declaration.is_none() && cfg.async_.declaration.is_none() {
-                    stub_docs(&mut func.attrs, &sync_name.to_string());
-                }
             }
         }
         Item::Trait(item_trait) => {
@@ -313,28 +310,14 @@ fn emit_variant(
                         )?;
                         table.add_auto_call(&method.sig.ident, &sync_name);
                         method.sig.ident = sync_name;
-                    } else {
-                        let sync_name = sync_ident(
-                            None,
-                            cfg.sync.pattern.as_ref(),
-                            "pattern",
-                            &method.sig.ident,
-                        )?;
-                        stub_docs(
-                            &mut method.attrs,
-                            &format!("{sync_trait_ident}::{sync_name}"),
-                        );
                     }
                 }
             }
-            if variant.is_sync() {
-                item_trait.ident = sync_trait_ident;
+            item_trait.ident = if variant.is_sync() {
+                sync_trait_ident
             } else {
-                item_trait.ident = async_trait_ident;
-                if cfg.sync.declaration.is_none() && cfg.async_.declaration.is_none() {
-                    stub_docs(&mut item_trait.attrs, &sync_trait_ident.to_string());
-                }
-            }
+                async_trait_ident
+            };
         }
         Item::Impl(item_impl) => {
             if cfg.sync.name.is_some() || cfg.async_.name.is_some() {
@@ -347,22 +330,6 @@ fn emit_variant(
             }
             passthrough_attrs(&mut item_impl.attrs, variant)?;
             filter_impl_items(&mut item_impl.items, variant);
-            let output_inherent = if let Some(Declaration::Impl(declaration)) = if variant.is_sync()
-            {
-                cfg.sync.declaration.as_ref()
-            } else {
-                cfg.async_.declaration.as_ref()
-            } {
-                declaration.trait_.is_none()
-            } else {
-                item_impl.trait_.is_none()
-            };
-            let sync_self_name = if let Some(Declaration::Impl(declaration)) = &cfg.sync.declaration
-            {
-                type_last_ident(&declaration.self_ty)
-            } else {
-                sync_self_name(&SubstTable::build(cfg), &item_impl.self_ty)
-            };
             for impl_item in &mut item_impl.items {
                 if let ImplItem::Fn(method) = impl_item {
                     passthrough_attrs(&mut method.attrs, variant)?;
@@ -379,14 +346,6 @@ fn emit_variant(
                         )?;
                         table.add_auto_call(&method.sig.ident, &sync_name);
                         method.sig.ident = sync_name;
-                    } else if output_inherent && let Some(self_name) = &sync_self_name {
-                        let sync_name = sync_ident(
-                            None,
-                            cfg.sync.pattern.as_ref(),
-                            "pattern",
-                            &method.sig.ident,
-                        )?;
-                        stub_docs(&mut method.attrs, &format!("{self_name}::{sync_name}"));
                     }
                 }
             }
@@ -430,12 +389,6 @@ fn emit_variant(
             };
             table.add_item_type(&source_name, output_name);
             item_struct.ident = output_name.clone();
-            if !variant.is_sync()
-                && cfg.sync.declaration.is_none()
-                && cfg.async_.declaration.is_none()
-            {
-                stub_docs(&mut item_struct.attrs, &sync_name.to_string());
-            }
         }
         Item::Enum(item_enum) => {
             passthrough_attrs(&mut item_enum.attrs, variant)?;
@@ -482,12 +435,6 @@ fn emit_variant(
             };
             table.add_item_type(&source_name, output_name);
             item_enum.ident = output_name.clone();
-            if !variant.is_sync()
-                && cfg.sync.declaration.is_none()
-                && cfg.async_.declaration.is_none()
-            {
-                stub_docs(&mut item_enum.attrs, &sync_name.to_string());
-            }
         }
         other => {
             return Err(syn::Error::new_spanned(
@@ -755,14 +702,6 @@ fn passthrough_attrs(attrs: &mut Vec<Attribute>, variant: Variant) -> syn::Resul
     Ok(())
 }
 
-/// Replace an async variant's doc comments with the conventional stub:
-/// `/// Async variant of [`target`].`
-fn stub_docs(attrs: &mut Vec<Attribute>, target: &str) {
-    attrs.retain(|attr| !matches!(&attr.meta, Meta::NameValue(nv) if nv.path.is_ident("doc")));
-    let text = format!(" Async variant of [`{target}`].");
-    attrs.insert(0, parse_quote!(#[doc = #text]));
-}
-
 fn append_doc(attrs: &mut Vec<Attribute>, extra: &LitStr) {
     if attrs
         .iter()
@@ -797,22 +736,68 @@ fn ensure_distinct(sync: &Ident, async_: &Ident) -> syn::Result<()> {
     Ok(())
 }
 
-/// The last ident of the impl self type after mapping it through the table —
-/// i.e. the sync struct name, used for doc links on async inherent methods.
-fn sync_self_name(table: &SubstTable, self_ty: &Type) -> Option<Ident> {
-    let mut ty = self_ty.clone();
-    if let Some(substituted) = table.subst_type(&ty) {
-        ty = substituted;
-    } else if let Type::Path(type_path) = &mut ty {
-        table.subst_path(&mut type_path.path, false);
-    }
-    type_last_ident(&ty)
-}
+#[cfg(test)]
+mod tests {
+    use quote::quote;
 
-fn type_last_ident(ty: &Type) -> Option<Ident> {
-    match ty {
-        Type::Path(type_path) => type_path.path.segments.last().map(|seg| seg.ident.clone()),
-        Type::Reference(reference) => type_last_ident(&reference.elem),
-        _ => None,
+    fn expand(args: proc_macro2::TokenStream, input: proc_macro2::TokenStream) -> String {
+        super::dual(args, input)
+            .expect("expansion succeeds")
+            .to_string()
+    }
+
+    /// Sync doc comments receive the same substitutions as code: `types(...)`
+    /// (including module-qualified paths), `calls(...)`, and the item's own
+    /// rename. Matching stops at identifier boundaries and path prefixes.
+    #[test]
+    fn sync_docs_follow_substitutions() {
+        let out = expand(
+            quote! {
+                sync(
+                    name = "read",
+                    types(AsyncStore => Store, mod_x::AsyncThing => mod_y::Thing),
+                    calls(async_helper => helper),
+                ),
+                async(feature = "async"),
+            },
+            quote! {
+                /// Reads an [`AsyncStore`] and a [`mod_x::AsyncThing`], using
+                /// [`async_helper`]; see also [`async_read`], `AsyncStore::new`,
+                /// `AsyncStoreExt` and [`other::AsyncStore`].
+                async fn async_read(store: &AsyncStore) -> u32 {
+                    async_helper(store).await
+                }
+            },
+        );
+        assert!(out.contains("[`Store`] and a [`mod_y::Thing`]"));
+        assert!(out.contains("[`helper`]"));
+        assert!(out.contains("[`read`]"));
+        assert!(out.contains("`Store::new`"));
+        // Longer identifiers and longer paths are not partial-matched.
+        assert!(out.contains("`AsyncStoreExt`"));
+        assert!(out.contains("[`other::AsyncStore`]"));
+        // The async variant keeps the source docs verbatim.
+        assert!(out.contains("[`AsyncStore`] and a [`mod_x::AsyncThing`]"));
+    }
+
+    /// An exact async output name rewrites doc self-references in the async
+    /// variant, mirroring the code rewrite of recursive calls.
+    #[test]
+    fn async_docs_follow_the_async_rename() {
+        let out = expand(
+            quote! {
+                sync(name = "read"),
+                async(feature = "async", name = "async_read"),
+            },
+            quote! {
+                /// See [`internal_read`].
+                async fn internal_read() -> u32 {
+                    1
+                }
+            },
+        );
+        assert!(out.contains("[`read`]"));
+        assert!(out.contains("[`async_read`]"));
+        assert!(!out.contains("internal_read"));
     }
 }

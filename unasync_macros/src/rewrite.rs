@@ -11,7 +11,10 @@ use proc_macro2::Span;
 use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
 use syn::visit_mut::{self, VisitMut};
-use syn::{Block, Expr, ExprBlock, Ident, Macro, Pat, Path, Stmt, Token, TraitBound};
+use syn::{
+    Attribute, Block, Expr, ExprBlock, Ident, Lit, LitStr, Macro, Meta, Pat, Path, Stmt, Token,
+    TraitBound,
+};
 
 use crate::subst::{SubstTable, strip_awaits_in_tokens};
 
@@ -314,6 +317,20 @@ impl VisitMut for Rewriter<'_> {
             }
         }
         visit_mut::visit_pat_mut(self, pat);
+    }
+
+    fn visit_attribute_mut(&mut self, attr: &mut Attribute) {
+        // Doc comments follow the same substitutions as code, so intra-doc
+        // links and prose mentions track each variant's names.
+        if let Meta::NameValue(nv) = &mut attr.meta
+            && nv.path.is_ident("doc")
+            && let Expr::Lit(lit) = &mut nv.value
+            && let Lit::Str(text) = &mut lit.lit
+            && let Some(rewritten) = self.table.rewrite_doc_text(&text.value())
+        {
+            *text = LitStr::new(&rewritten, text.span());
+        }
+        visit_mut::visit_attribute_mut(self, attr);
     }
 
     fn visit_macro_mut(&mut self, mac: &mut Macro) {

@@ -1,23 +1,19 @@
-//! Write sync/async-generic Rust: author the async form once, derive the sync
-//! variant mechanically.
+//! Write the async form once; [`macro@dual`] derives the sync variant
+//! mechanically.
 //!
-//! The annotated item is written in **async form** — async types, async bodies,
-//! `.await` — so the source is real, compilable async code. Its identifier
-//! normally uses the async spelling too, though exact sync and async output
-//! names may be configured. The [`macro@dual`] attribute then emits:
+//! The annotated item is written in **async form** — async types, async
+//! bodies, `.await` — so the source is real, compilable async code.
+//! `#[dual]` emits two items:
 //!
-//! - the **async variant**: the source as written (helper attributes removed,
-//!   markers resolved, and an optional declaration applied), optionally gated
-//!   with `async(feature = "...")`;
-//! - the **sync variant**: `async` removed, every `.await` stripped, names
-//!   selected by `sync(name = "...")` or the scoped naming patterns, and the
-//!   `sync(types(...))`/`sync(calls(...))` substitutions applied, optionally
-//!   gated with `sync(feature = "...")`.
+//! - the **async variant**: the source as written;
+//! - the **sync variant**: `async` removed, every `.await` stripped
+//!   (`async { ... }` blocks become immediately invoked closures), and names,
+//!   types, and calls mapped through the `sync(...)` options.
 //!
-//! Naming is **always explicit** — `unasync` does not assume an `async_`
-//! prefix or any other convention. Give an exact sync item name, or use
-//! `sync(pattern = "async_{}")` / `sync(type_pattern = "Async{}")` where a
-//! convention needs to cover methods or multiple scoped items.
+//! Naming is **always explicit** — no `async_` prefix or other convention is
+//! assumed. Give an exact sync name, or use `sync(pattern = "async_{}")` /
+//! `sync(type_pattern = "Async{}")` where one convention covers methods or
+//! multiple scoped items.
 //!
 //! ```
 //! struct Store(u32);
@@ -37,19 +33,19 @@
 //!
 //! # Options
 //!
-//! | Option | Effect |
-//! |---|---|
-//! | `sync(feature = "sync", name = "read")` | configure the sync gate and exact item name |
-//! | `sync(pattern = "async_{}")` | derive sync fn/method names; `{}` captures the sync name |
-//! | `sync(type_pattern = "Async{}")` | derive sync type/trait names |
-//! | `sync(types(A => B, ...))` | async spelling → sync spelling type substitutions |
-//! | `sync(calls(f => g, ...))` | async call name → sync call name (the `.await` is written in the source) |
-//! | `async(feature = "async", name = "async_read")` | configure the async gate and optional exact item name |
-//! | `sync(doc = "...", attr = #[...])` / `async(...)` | variant-specific docs and repeatable item attributes |
-//! | `sync(test_attr = #[...])` / `async(...)` | test attributes (defaults: `#[test]` / `#[tokio::test]`) |
-//! | `sync(declaration { item shell })` / `async(...)` | complete outer declaration for an item variant |
-//! | `async(flavor = async_fn \| async_trait)` | async trait/impl emission style |
-//! | `async(wasm_send)` | with `async_trait`: native `Send` / wasm `?Send` cfg pairing |
+//! | Option | `sync(...)` | `async(...)` | Effect |
+//! |---|:-:|:-:|---|
+//! | `feature = "..."` | ✓ | ✓ | cfg-gate the variant |
+//! | `name = "..."` | ✓ | ✓ | exact output item name |
+//! | `doc = "..."` / `attr = #[...]` | ✓ | ✓ | variant-specific docs and item attributes |
+//! | `test_attr = #[...]` | ✓ | ✓ | test attribute (defaults `#[test]` / `#[tokio::test]`) |
+//! | `declaration { ... }` | ✓ | ✓ | complete outer declaration for the variant |
+//! | `pattern = "async_{}"` | ✓ | — | derive sync fn/method names; `{}` captures the sync name |
+//! | `type_pattern = "Async{}"` | ✓ | — | derive sync type/trait names |
+//! | `types(A => B, ...)` | ✓ | — | type substitutions, token-level, generic-aware; paths may be module-qualified |
+//! | `calls(f => g, ...)` | ✓ | — | call renames (the `.await` lives in the source) |
+//! | `flavor = async_fn \| async_trait` | — | ✓ | async trait/impl emission style |
+//! | `wasm_send` | — | ✓ | with `async_trait`: native `Send` / wasm `?Send` |
 //!
 //! Both variants can be feature-gated, either one, or neither. The attribute
 //! is **never wrapped in `cfg_attr`** — it always runs and emits the cfg gates
@@ -107,7 +103,34 @@
 //!     #[async_only]
 //!     pub concurrency: usize,
 //! }
+//!
+//! #[unasync::dual(sync(name = "Mode"))]
+//! pub enum AsyncMode {
+//!     Shared,
+//!     #[sync_only]
+//!     Blocking { threads: usize },
+//!     #[async_only]
+//!     Concurrent { concurrency: usize },
+//! }
+//!
+//! #[unasync::dual(sync(name = "Fetch", pattern = "async_{}"))]
+//! pub trait AsyncFetch {
+//!     async fn async_get(&self, key: &str) -> Option<Vec<u8>>;
+//!     #[sync_only]
+//!     fn threads(&self) -> usize;
+//!     #[async_only]
+//!     fn concurrency(&self) -> usize;
+//! }
 //! ```
+//!
+//! # Docs
+//!
+//! Both variants keep the source doc comments. Doc text receives the same
+//! token-level substitutions as code — `types(...)`, `calls(...)`, and item
+//! renames, matched at identifier boundaries — so intra-doc links and prose
+//! follow each variant's names (`` [`AsyncStore`] `` → `` [`Store`] ``).
+//! Append variant-specific paragraphs with `sync(doc = "...")` /
+//! `async(doc = "...")`.
 //!
 //! # Tests
 //!
