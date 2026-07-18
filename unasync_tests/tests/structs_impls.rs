@@ -207,3 +207,42 @@ fn identity_pattern_supports_same_named_methods() {
 async fn identity_pattern_keeps_async_method_name() {
     assert_eq!(AsyncSameNamed.value().await, 13);
 }
+
+// Arrow patterns on impls and types: `async_{} => sync_{}` method names and
+// an `Async{} => Sync{}` type pattern, with call-following between methods.
+#[dual(sync(type_pattern = "Async{} => Sync{}"), async(feature = "async"))]
+pub struct AsyncPort {
+    pub value: u32,
+}
+
+#[dual(
+    sync(
+        pattern = "async_{} => sync_{}",
+        types(AsyncPort => SyncPort),
+    ),
+    async(feature = "async"),
+)]
+impl AsyncPort {
+    pub async fn async_read(&self) -> u32 {
+        self.value
+    }
+
+    pub async fn async_read_twice(&self) -> u32 {
+        self.async_read().await + self.async_read().await
+    }
+}
+
+#[test]
+fn arrow_patterns_rename_type_and_methods() {
+    let port = SyncPort { value: 7 };
+    assert_eq!(port.sync_read(), 7);
+    assert_eq!(port.sync_read_twice(), 14);
+}
+
+#[cfg(feature = "async")]
+#[tokio::test]
+async fn arrow_patterns_keep_the_async_spellings() {
+    let port = AsyncPort { value: 7 };
+    assert_eq!(port.async_read().await, 7);
+    assert_eq!(port.async_read_twice().await, 14);
+}

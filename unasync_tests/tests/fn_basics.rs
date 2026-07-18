@@ -457,3 +457,33 @@ async fn braced_function_declaration_keeps_async_source() {
 async fn exact_async_name_is_used() {
     assert_eq!(explicit_async_name().await, 12);
 }
+
+// Arrow patterns map the async spelling to a sync spelling built from the
+// same `{}` stem instead of just stripping the affix.
+#[dual(sync(pattern = "async_{} => sync_{}"), async(feature = "async"))]
+async fn async_doubled(x: u32) -> u32 {
+    x * 2
+}
+
+#[test]
+fn arrow_pattern_replaces_the_prefix() {
+    assert_eq!(sync_doubled(3), 6);
+}
+
+#[cfg(feature = "async")]
+#[tokio::test]
+async fn arrow_pattern_keeps_the_async_name() {
+    assert_eq!(async_doubled(3).await, 6);
+}
+
+// Purely additive arrow patterns: the sync side can add an affix the async
+// spelling never had.
+#[dual(sync(pattern = "{} => {}_blocking"), async(feature = "async"))]
+async fn fetch_count() -> u32 {
+    9
+}
+
+#[test]
+fn additive_arrow_pattern() {
+    assert_eq!(fetch_count_blocking(), 9);
+}

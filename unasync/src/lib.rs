@@ -13,7 +13,10 @@
 //! Naming is **always explicit** — no `async_` prefix or other convention is
 //! assumed. Give an exact sync name, or use `sync(pattern = "async_{}")` /
 //! `sync(type_pattern = "Async{}")` where one convention covers methods or
-//! multiple scoped items.
+//! multiple scoped items; the `{}` capture is the sync name. The arrow form
+//! maps the `{}` stem into a different sync spelling instead:
+//! `pattern = "async_{} => sync_{}"` maps `async_read` to `sync_read` (the
+//! short form is sugar for `"... => {}"`).
 //!
 //! ```
 //! struct Store(u32);
@@ -41,7 +44,8 @@
 //! | `test_attr = #[...]` | ✓ | ✓ | test attribute (defaults `#[test]` / `#[tokio::test]`) |
 //! | `declaration { ... }` | ✓ | ✓ | complete outer declaration for the variant |
 //! | `pattern = "async_{}"` | ✓ | — | derive sync fn/method names; `{}` captures the sync name |
-//! | `type_pattern = "Async{}"` | ✓ | — | derive sync type/trait names |
+//! | `pattern = "async_{} => sync_{}"` | ✓ | — | arrow form: map the async spelling to a sync spelling sharing the `{}` stem |
+//! | `type_pattern = "Async{}"` | ✓ | — | derive sync type/trait names; short and arrow forms as above |
 //! | `types(A => B, ...)` | ✓ | — | type substitutions, token-level, generic-aware; paths may be module-qualified |
 //! | `calls(f => g, ...)` | ✓ | — | call renames (the `.await` lives in the source) |
 //! | `flavor = async_fn \| async_trait` | — | ✓ | async trait/impl emission style |

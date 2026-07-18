@@ -50,8 +50,13 @@ once per variant:
 
 Naming is **always explicit** — no `async_` prefix or other convention is
 assumed. Use an exact name (`sync(name = "read")`), or a pattern when one
-convention covers methods or multiple items (`sync(pattern = "async_{}")`,
-`sync(type_pattern = "Async{}")`).
+convention covers methods or multiple items. A pattern names the async
+spelling and the `{}` capture is the sync name: `pattern = "async_{}"` maps
+`async_read` to `read`. The arrow form maps the `{}` stem into a different
+sync spelling instead: `pattern = "async_{} => sync_{}"` maps `async_read` to
+`sync_read`, `type_pattern = "Async{} => Sync{}"` maps `AsyncClient` to
+`SyncClient`, and `pattern = "{} => {}_blocking"` adds an affix the async
+spelling never had. The short form is sugar for `"... => {}"`.
 
 The attribute always runs and emits the `#[cfg(feature = ...)]` gates itself —
 never wrap it in `cfg_attr` — so the expansion stays correct whether both,
@@ -67,7 +72,8 @@ either, or neither variant is feature-gated.
 | `test_attr = #[...]` | ✓ | ✓ | test attribute (defaults `#[test]` / `#[tokio::test]`) |
 | `declaration { ... }` | ✓ | ✓ | complete outer declaration for the variant |
 | `pattern = "async_{}"` | ✓ | — | derive sync fn/method names; `{}` captures the sync name |
-| `type_pattern = "Async{}"` | ✓ | — | derive sync type/trait names |
+| `pattern = "async_{} => sync_{}"` | ✓ | — | arrow form: map the async spelling to a sync spelling sharing the `{}` stem |
+| `type_pattern = "Async{}"` | ✓ | — | derive sync type/trait names; short and arrow forms as above |
 | `types(A => B, ...)` | ✓ | — | type substitutions, token-level, generic-aware; paths may be module-qualified (`mod_x::A => mod_y::B`) |
 | `calls(f => g, ...)` | ✓ | — | call renames (the `.await` lives in the source) |
 | `flavor = async_fn \| async_trait` | — | ✓ | async trait/impl emission style |

@@ -144,3 +144,24 @@ async fn scoped_async_fn_override_accepts_non_send_future() {
 
     Local(std::rc::Rc::new(())).async_run().await;
 }
+
+// Arrow patterns are ordinary defaults, so they work in `scope` (and
+// `content!`) unchanged.
+#[unasync::scope(async(feature = "async"), sync(pattern = "async_{} => sync_{}"))]
+mod arrow_scoped {
+    #[dual]
+    pub async fn async_answer() -> u32 {
+        42
+    }
+}
+
+#[test]
+fn scope_arrow_pattern_applies() {
+    assert_eq!(arrow_scoped::sync_answer(), 42);
+}
+
+#[cfg(feature = "async")]
+#[tokio::test]
+async fn scope_arrow_pattern_keeps_async_name() {
+    assert_eq!(arrow_scoped::async_answer().await, 42);
+}

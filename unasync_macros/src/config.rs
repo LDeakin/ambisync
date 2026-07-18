@@ -40,6 +40,84 @@ impl Parse for TypeSubst {
     }
 }
 
+/// A `sync(pattern = ...)` / `sync(type_pattern = ...)` rename pattern.
+///
+/// The short form names the async spelling and captures the sync name:
+/// `"async_{}"` maps `async_read` to `read`. The full form maps the async
+/// spelling to a sync spelling built from the same `{}` stem:
+/// `"async_{} => sync_{}"` maps `async_read` to `sync_read`. The short form
+/// is sugar for `"... => {}"`.
+#[derive(Clone)]
+pub struct RenamePattern {
+    lit: LitStr,
+    async_prefix: String,
+    async_suffix: String,
+    sync_prefix: String,
+    sync_suffix: String,
+}
+
+impl RenamePattern {
+    pub fn parse(lit: LitStr) -> syn::Result<Self> {
+        let value = lit.value();
+        let (async_side, sync_side) = match value.split_once("=>") {
+            Some((async_side, sync_side)) if !sync_side.contains("=>") => {
+                (async_side.trim(), sync_side.trim())
+            }
+            Some(_) => {
+                return Err(syn::Error::new(
+                    lit.span(),
+                    "a rename pattern has at most one `=>`",
+                ));
+            }
+            None => (value.trim(), "{}"),
+        };
+        let (async_prefix, async_suffix) = split_pattern_side(&lit, async_side)?;
+        let (sync_prefix, sync_suffix) = split_pattern_side(&lit, sync_side)?;
+        Ok(Self {
+            lit,
+            async_prefix,
+            async_suffix,
+            sync_prefix,
+            sync_suffix,
+        })
+    }
+
+    /// The sync ident derived from an async (source) ident, or `None` when
+    /// the ident does not match the pattern's async side.
+    pub fn sync_name(&self, async_ident: &Ident) -> syn::Result<Option<Ident>> {
+        let name = async_ident.to_string();
+        let Some(stem) = name
+            .strip_prefix(&self.async_prefix)
+            .and_then(|name| name.strip_suffix(&self.async_suffix))
+        else {
+            return Ok(None);
+        };
+        if stem.is_empty() {
+            return Ok(None);
+        }
+        let sync = format!("{}{stem}{}", self.sync_prefix, self.sync_suffix);
+        ident_from_str(&sync, async_ident.span()).map(Some)
+    }
+
+    pub fn value(&self) -> String {
+        self.lit.value()
+    }
+}
+
+fn split_pattern_side(lit: &LitStr, side: &str) -> syn::Result<(String, String)> {
+    let (prefix, suffix) = match side.split_once("{}") {
+        Some((prefix, suffix)) if !suffix.contains("{}") => (prefix, suffix),
+        _ => {
+            return Err(syn::Error::new(
+                lit.span(),
+                "each side of a name pattern must contain exactly one `{}` placeholder, \
+                 e.g. `async_{}`, `{}_async` or `async_{} => sync_{}`",
+            ));
+        }
+    };
+    Ok((prefix.to_string(), suffix.to_string()))
+}
+
 /// One `sync(calls(async_name => sync_name))` entry. In the derived sync expansion,
 /// calls/method-calls named `async_name` are renamed to `sync_name` (the
 /// `.await` on the call was written in the source and is stripped anyway).
@@ -133,9 +211,9 @@ pub struct SyncConfig {
     /// Exact name for the annotated sync item.
     pub name: Option<Ident>,
     /// Pattern used to derive sync function/method names from async names.
-    pub pattern: Option<LitStr>,
+    pub pattern: Option<RenamePattern>,
     /// Pattern used to derive sync type/trait names from async names.
-    pub type_pattern: Option<LitStr>,
+    pub type_pattern: Option<RenamePattern>,
     /// Extra documentation appended to the sync variant.
     pub doc: Option<LitStr>,
     /// Attributes appended to the sync variant.
@@ -458,10 +536,8 @@ fn parse_name(input: ParseStream) -> syn::Result<Ident> {
     ident_from_str(&lit.value(), lit.span())
 }
 
-fn parse_pattern_value(input: ParseStream) -> syn::Result<LitStr> {
-    let lit: LitStr = parse_value(input)?;
-    validate_pattern(&lit)?;
-    Ok(lit)
+fn parse_pattern_value(input: ParseStream) -> syn::Result<RenamePattern> {
+    RenamePattern::parse(parse_value(input)?)
 }
 
 fn parse_optional_comma(input: ParseStream) -> syn::Result<()> {
@@ -496,16 +572,6 @@ fn legacy_option_error(key: &Ident) -> syn::Error {
         key.span(),
         format!("`{key}` is now variant-specific; use {replacement}"),
     )
-}
-
-fn validate_pattern(lit: &LitStr) -> syn::Result<()> {
-    if lit.value().matches("{}").count() != 1 {
-        return Err(syn::Error::new(
-            lit.span(),
-            "name pattern must contain exactly one `{}` placeholder, e.g. `async_{}` or `{}_async`",
-        ));
-    }
-    Ok(())
 }
 
 impl Config {
@@ -615,30 +681,11 @@ fn merge_option<T: Clone>(item: &mut Option<T>, default: &Option<T>) {
     }
 }
 
-/// Derive the sync name from an async (source) name by matching it against a
-/// rename pattern: `unapply_pattern("async_{}", async_read)` → `read`.
-pub fn unapply_pattern(pattern: &str, ident: &Ident) -> syn::Result<Option<Ident>> {
-    let Some((prefix, suffix)) = pattern.split_once("{}") else {
-        return Ok(None);
-    };
-    let name = ident.to_string();
-    let Some(core) = name
-        .strip_prefix(prefix)
-        .and_then(|name| name.strip_suffix(suffix))
-    else {
-        return Ok(None);
-    };
-    if core.is_empty() {
-        return Ok(None);
-    }
-    ident_from_str(core, ident.span()).map(Some)
-}
-
 /// Compute the sync ident for a source (async) ident, erroring with guidance
 /// when no pattern was configured or the name does not match it.
 pub fn sync_ident(
     exact: Option<&Ident>,
-    pattern: Option<&LitStr>,
+    pattern: Option<&RenamePattern>,
     which: &str,
     async_ident: &Ident,
 ) -> syn::Result<Ident> {
@@ -655,8 +702,8 @@ pub fn sync_ident(
             ),
         ));
     };
-    let value = pattern.value();
-    unapply_pattern(&value, async_ident)?.ok_or_else(|| {
+    pattern.sync_name(async_ident)?.ok_or_else(|| {
+        let value = pattern.value();
         syn::Error::new(
             async_ident.span(),
             format!("`{async_ident}` does not match the `sync({which} = ...)` pattern `{value}`"),
@@ -673,4 +720,64 @@ fn ident_from_str(value: &str, span: proc_macro2::Span) -> syn::Result<Ident> {
         .map_err(|_| syn::Error::new(span, format!("`{value}` is not a valid Rust identifier")))?;
     ident.set_span(span);
     Ok(ident)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RenamePattern;
+    use proc_macro2::Span;
+    use syn::{Ident, LitStr};
+
+    fn sync_name(pattern: &str, async_name: &str) -> Option<String> {
+        let pattern =
+            RenamePattern::parse(LitStr::new(pattern, Span::call_site())).expect("valid pattern");
+        pattern
+            .sync_name(&Ident::new(async_name, Span::call_site()))
+            .expect("valid ident")
+            .map(|ident| ident.to_string())
+    }
+
+    #[test]
+    fn short_form_strips_the_affix() {
+        assert_eq!(sync_name("async_{}", "async_read"), Some("read".into()));
+        assert_eq!(sync_name("{}_async", "read_async"), Some("read".into()));
+        assert_eq!(sync_name("{}", "read"), Some("read".into()));
+        assert_eq!(sync_name("async_{}", "read"), None);
+        assert_eq!(sync_name("async_{}", "async_"), None);
+    }
+
+    #[test]
+    fn arrow_form_maps_the_stem() {
+        assert_eq!(
+            sync_name("async_{} => sync_{}", "async_read"),
+            Some("sync_read".into())
+        );
+        assert_eq!(
+            sync_name("{}_async => {}_blocking", "read_async"),
+            Some("read_blocking".into())
+        );
+        assert_eq!(sync_name("{} => {}_sync", "read"), Some("read_sync".into()));
+        assert_eq!(
+            sync_name("Async{} => Sync{}", "AsyncClient"),
+            Some("SyncClient".into())
+        );
+        assert_eq!(sync_name("async_{} => sync_{}", "other"), None);
+    }
+
+    #[test]
+    fn invalid_patterns_are_rejected() {
+        for bad in [
+            "async",
+            "a_{}_{}",
+            "async_{} => ",
+            "async_{} => {} => {}",
+            " => {}",
+        ] {
+            let lit = LitStr::new(bad, Span::call_site());
+            assert!(
+                RenamePattern::parse(lit).is_err(),
+                "`{bad}` should be rejected"
+            );
+        }
+    }
 }
