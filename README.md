@@ -3,12 +3,11 @@
 Write the async form once; `#[ambisync]` derives the sync variant
 mechanically.
 
-Libraries that ship both sync and async APIs maintain parallel code paths that
-are identical except for `.await` points, item names (e.g.
-`read` / `async_read`,
-`Store` / `AsyncStore`), test attributes, and feature gates.
-`ambisync`
-collapses each such pair into a single async-written item:
+Libraries that ship both sync and async APIs maintain parallel code paths.
+These paths are identical except for `.await` points, item names (for example,
+`read` / `async_read` and `Store` / `AsyncStore`), test attributes, and feature
+gates.
+`ambisync` collapses each such pair into a single async-written item:
 
 ```rust
 use ambisync::ambisync;
@@ -37,30 +36,37 @@ pub fn read(store: &Store, key: &str) -> Option<Vec<u8>> {
 
 ## How it works
 
-The annotated item is written in async form — async types, async bodies,
-`.await` — so the source is real, compilable async code that rust-analyzer and
+Write the annotated item in async form, using async types, async bodies, and
+`.await`.
+The source is therefore real, compilable async code that rust-analyzer and
 rustfmt understand.
-`#[ambisync]` clones the item and runs a syntactic rewriter
-once per variant:
+`#[ambisync]` clones the item and runs a syntactic rewriter once per variant:
 
-- **async variant** — the source as written, with helper attributes removed and markers resolved.
+- **async variant** — the source as written.
+  Helper attributes are removed and markers are resolved.
 - **sync variant** — derived mechanically:
-- `async fn` → `fn`, and every `.await` is stripped;
-- `async { ... }` / `async move { ... }` blocks become immediately invoked closures (preserving the block's `return`/`?` boundary and `move` captures); async closures become ordinary closures;
-- names are mapped through `sync(name/pattern/type_pattern)`, and types and calls through the `sync(types(...))` / `sync(calls(...))` tables.
+  - `async fn` → `fn`, and every `.await` is stripped.
+  - `async { ... }` / `async move { ... }` blocks become immediately invoked
+    closures.
+    The transformation preserves the block's `return`/`?` boundary and `move`
+    captures.
+  - Async closures become ordinary closures.
+  - Names are mapped through `sync(name/pattern/type_pattern)`.
+  - Types and calls are mapped through the `sync(types(...))` /
+    `sync(calls(...))` tables.
 
-Naming is **always explicit** — no `async_` prefix or other convention is
-assumed.
-Use an exact name (`sync(name = "read")`), or a pattern when one
-convention covers methods or multiple items.
+Naming is **always explicit**.
+No `async_` prefix or other convention is assumed.
+Use an exact name (`sync(name = "read")`) or a pattern when one convention
+covers methods or multiple items.
 A pattern names the async
 spelling and the `{}` capture is the sync name: `pattern = "async_{}"` maps
 `async_read` to `read`.
-The arrow form maps the `{}` stem into a different
-sync spelling instead: `pattern = "async_{} => sync_{}"` maps `async_read` to
-`sync_read`, `type_pattern = "Async{} => Sync{}"` maps `AsyncClient` to
-`SyncClient`, and `pattern = "{} => {}_blocking"` adds an affix the async
-spelling never had.
+The arrow form maps the `{}` stem into a different sync spelling.
+For example, `pattern = "async_{} => sync_{}"` maps `async_read` to `sync_read`.
+Similarly, `type_pattern = "Async{} => Sync{}"` maps `AsyncClient` to
+`SyncClient`.
+`pattern = "{} => {}_blocking"` adds an affix that the async spelling never had.
 The short form is sugar for `"... => {}"`.
 
 The attribute always runs and emits the `#[cfg(feature = ...)]` gates itself —
@@ -90,13 +96,19 @@ async-written source; the async expansion uses it verbatim.
 ## Item coverage
 
 `#[ambisync]` applies to `fn`, `trait`, `impl` (inherent and trait impls),
-`struct`, and `enum`:
+`struct`, and `enum`.
 
-- **Traits** — the trait is renamed via `name`/`type_pattern`, methods via `pattern`; default bodies follow the renames.
-The async trait gets `#[allow(async_fn_in_trait)]`, or use `async(flavor = async_trait)`.
-- **Impls** — the self type and trait path are rewritten via `types(...)`; methods are renamed via `pattern` and calls between them follow automatically.
-The identity pattern `"{}"` keeps method names unchanged when the sync and async types already provide separate namespaces.
-- **Structs / enums** — the type is renamed and field types substituted.
+- **Traits** — Rename the trait via `name`/`type_pattern` and methods via
+  `pattern`.
+  Default bodies follow the renames.
+  The async trait gets `#[allow(async_fn_in_trait)]`, or you can use
+  `async(flavor = async_trait)`.
+- **Impls** — Rewrite the self type and trait path via `types(...)`.
+  Rename methods via `pattern`.
+  Calls between renamed methods follow automatically.
+  The identity pattern `"{}"` keeps method names unchanged when the sync and
+  async types already provide separate namespaces.
+- **Structs / enums** — The type is renamed and field types are substituted.
 
 ## Divergent code
 
@@ -172,12 +184,12 @@ async fn async_roundtrip() {
 
 ## Explicit declarations
 
-Either variant of any supported item can supply its complete outer
-declaration: an ordinary Rust item with an empty body.
-The shell provides the
-docs, attributes, visibility, name, generics, and bounds exactly as written;
-the macro attaches the rewritten shared contents (a function's body, a
-trait/impl's members, a struct's fields, an enum's variants):
+Either variant of any supported item can supply its complete outer declaration.
+This is an ordinary Rust item with an empty body.
+The shell provides the docs, attributes, visibility, name, generics, and
+bounds exactly as written.
+The macro attaches the rewritten shared contents: a function's body, a
+trait/impl's members, a struct's fields, or an enum's variants.
 
 ```rust
 #[ambisync(
@@ -194,10 +206,10 @@ pub async fn async_read(store: &AsyncStore, key: &str) -> Option<Vec<u8>> {
 }
 ```
 
-The declaration header is emitted verbatim — it is not passed through
-`types(...)` or renaming — and it owns that variant's name, docs, and
-attributes, so it cannot be combined with `name`/`doc`/`attr` for the same
-variant.
+The declaration header is emitted verbatim.
+It is not passed through `types(...)` or renaming.
+It owns that variant's name, docs, and attributes.
+It therefore cannot be combined with `name`/`doc`/`attr` for the same variant.
 With only a sync declaration, the async item keeps its own header.
 
 ## Shared defaults
@@ -219,29 +231,32 @@ mod ops {
 }
 ```
 
-`scope` requires an inline module; for file modules (`mod foo;`) use
+`scope` requires an inline module.
+For file modules (`mod foo;`), use
 `ambisync::scoped! { #![defaults(...)] ... }` inside the file.
-Item-level options override the defaults; substitution tables concatenate, with item entries taking precedence.
+Item-level options override the defaults.
+Substitution tables concatenate, with item entries taking precedence.
 
 ## Docs
 
 Both variants keep the source doc comments.
-Doc text receives the same
-token-level substitutions as code — `types(...)`, `calls(...)`, and item
-renames, matched at identifier boundaries — so intra-doc links and prose
-follow each variant's names: [`AsyncStore`] becomes [`Store`],
-[`mod_x::AsyncThing`] becomes [`mod_y::Thing`], [`async_read`] becomes
-[`read`].
+Doc text receives the same token-level substitutions as code.
+These include `types(...)`, `calls(...)`, and item renames matched at
+identifier boundaries.
+Intra-doc links and prose therefore follow each variant's names:
+[`AsyncStore`] becomes [`Store`], [`mod_x::AsyncThing`] becomes
+[`mod_y::Thing`], and [`async_read`] becomes [`read`].
 Append variant-specific paragraphs with `sync(doc = "...")` /
-`async(doc = "...")`, and use `#[sync_attr(...)]` / `#[async_attr(...)]` on
-items and methods for attributes that belong to one variant only.
+`async(doc = "...")`.
+Use `#[sync_attr(...)]` / `#[async_attr(...)]` for attributes that belong to
+one variant only.
 
 ## wasm and `Send`
 
 With `async(flavor = async_trait)`, the `send` option sets the `Send`-ness of
-the emitted async traits/impls: `send = true` (the default), `send = false`
-(`?Send`), or `send = cfg(PRED)` — `Send` where the predicate holds, `?Send`
-elsewhere.
+the emitted async traits/impls.
+Use `send = true` (the default), `send = false` (`?Send`), or
+`send = cfg(PRED)` (`Send` where the predicate holds and `?Send` elsewhere).
 The standard native-`Send` / wasm-`?Send` pairing is:
 
 ```rust
