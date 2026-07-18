@@ -1,6 +1,6 @@
 //! Item-level expansion: emit the async variant (the source, minus helper
 //! attributes and resolved markers) and the derived sync variant, plus the
-//! `scope`/`content!` shared-defaults wrappers.
+//! `scope`/`scoped!` shared-defaults wrappers.
 
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
@@ -14,7 +14,7 @@ use crate::config::{Config, Declaration, Flavor, async_ident, sync_ident};
 use crate::rewrite::{Rewriter, Variant};
 use crate::subst::SubstTable;
 
-pub fn dual(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> {
+pub fn ambisync(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> {
     let cfg = Config::parse_args(args)?;
     let item: Item = syn::parse2(input)?;
     expand_item(&item, &cfg, false)
@@ -40,7 +40,7 @@ pub fn scope(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> 
         return Err(syn::Error::new_spanned(
             &module,
             "#[ambisync::scope] requires an inline module (`mod foo { ... }`); \
-             for `mod foo;` use `ambisync::content!` inside the module file",
+             for `mod foo;` use `ambisync::scoped!` inside the module file",
         ));
     };
     let inner = process_items(items, &defaults)?;
@@ -60,7 +60,7 @@ pub fn scope(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> 
     })
 }
 
-pub fn content(input: TokenStream) -> syn::Result<TokenStream> {
+pub fn scoped(input: TokenStream) -> syn::Result<TokenStream> {
     let file: syn::File = syn::parse2(input)?;
     let mut defaults = Config::default();
     for attr in &file.attrs {
@@ -73,7 +73,7 @@ pub fn content(input: TokenStream) -> syn::Result<TokenStream> {
         } else {
             return Err(syn::Error::new_spanned(
                 attr,
-                "ambisync::content! only supports `#![defaults(...)]` inner attributes",
+                "ambisync::scoped! only supports `#![defaults(...)]` inner attributes",
             ));
         }
     }
@@ -101,16 +101,16 @@ fn validate_scope_defaults(defaults: &Config) -> syn::Result<()> {
             exact_name.map_or_else(|| declaration.expect("checked above").span(), Ident::span);
         return Err(syn::Error::new(
             span,
-            "exact variant names and declarations are item-specific and cannot be scope/content \
+            "exact variant names and declarations are item-specific and cannot be scope/scoped! \
              defaults; put them on the item",
         ));
     }
     Ok(())
 }
 
-/// Which ambisync attribute an item inside `scope`/`content!` carries.
+/// Which ambisync attribute an item inside `scope`/`scoped!` carries.
 enum ScopedAttr {
-    Dual,
+    Ambisync,
     Test,
 }
 
@@ -130,8 +130,8 @@ fn process_items(items: Vec<Item>, defaults: &Config) -> syn::Result<TokenStream
         let mut found = None;
         for (index, attr) in attrs.iter().enumerate() {
             let path = attr.path();
-            if path.is_ident("dual") || is_ambisync_path(path, "dual") {
-                found = Some((index, ScopedAttr::Dual));
+            if path.is_ident("ambisync") || is_ambisync_path(path, "ambisync") {
+                found = Some((index, ScopedAttr::Ambisync));
                 break;
             }
             if is_ambisync_path(path, "test") {
@@ -439,7 +439,7 @@ fn emit_variant(
         other => {
             return Err(syn::Error::new_spanned(
                 other,
-                "#[ambisync::dual] supports `fn`, `trait`, `impl`, `struct` and `enum` items",
+                "#[ambisync] supports `fn`, `trait`, `impl`, `struct` and `enum` items",
             ));
         }
     }
@@ -741,7 +741,7 @@ mod tests {
     use quote::quote;
 
     fn expand(args: proc_macro2::TokenStream, input: proc_macro2::TokenStream) -> String {
-        super::dual(args, input)
+        super::ambisync(args, input)
             .expect("expansion succeeds")
             .to_string()
     }

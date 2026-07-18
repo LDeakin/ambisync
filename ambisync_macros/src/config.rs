@@ -1,5 +1,5 @@
-//! Attribute-argument parsing for `#[ambisync::dual]`, `#[ambisync::test]`,
-//! `#[ambisync::scope]` and `ambisync::content!`.
+//! Attribute-argument parsing for `#[ambisync]`, `#[ambisync::test]`,
+//! `#[ambisync::scope]` and `ambisync::scoped!`.
 
 use proc_macro2::TokenStream;
 use syn::parse::discouraged::Speculative;
@@ -579,7 +579,7 @@ impl Config {
         syn::parse2(args)
     }
 
-    /// Merge an item-level config over shared defaults (from `scope`/`content!`).
+    /// Merge an item-level config over shared defaults (from `scope`/`scoped!`).
     /// Item-level values win; substitution tables are concatenated with the
     /// item-level entries first (first match wins during rewriting).
     pub fn merged_over(mut self, defaults: &Config) -> Config {

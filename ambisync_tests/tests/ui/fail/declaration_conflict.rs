@@ -1,4 +1,4 @@
-#[ambisync::dual(
+#[ambisync::ambisync(
     sync(
         name = "value",
         declaration {

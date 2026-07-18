@@ -1,5 +1,5 @@
 //! Shared defaults: `#[ambisync::scope]` on an inline module and
-//! `ambisync::content! { #![defaults(...)] ... }`. The rename patterns and
+//! `ambisync::scoped! { #![defaults(...)] ... }`. The rename patterns and
 //! substitution tables are stated once per module.
 
 #![allow(dead_code)]
@@ -38,7 +38,7 @@ mod scoped {
 
     use super::*;
 
-    #[dual(sync(calls(async_make_store => make_store)))]
+    #[ambisync(sync(calls(async_make_store => make_store)))]
     pub async fn async_scoped_value() -> u32 {
         let store: AsyncStore = async_make_store().await;
         store.get().await
@@ -66,14 +66,14 @@ async fn scope_applies_defaults_async() {
     assert_eq!(scoped::async_scoped_value().await, 2);
 }
 
-ambisync::content! {
+ambisync::scoped! {
     #![defaults(
         sync(pattern = "async_{}", types(AsyncStore => Store)),
         async(feature = "async"),
     )]
 
-    #[dual(sync(calls(async_make_store => make_store)))]
-    pub async fn async_content_value() -> u32 {
+    #[ambisync(sync(calls(async_make_store => make_store)))]
+    pub async fn async_file_value() -> u32 {
         let store: AsyncStore = async_make_store().await;
         store.get().await
     }
@@ -85,15 +85,15 @@ ambisync::content! {
 }
 
 #[test]
-fn content_applies_defaults_sync() {
-    assert_eq!(content_value(), 1);
+fn scoped_macro_applies_defaults_sync() {
+    assert_eq!(file_value(), 1);
     assert_eq!(passthrough_item(), 99);
 }
 
 #[cfg(feature = "async")]
 #[tokio::test]
-async fn content_applies_defaults_async() {
-    assert_eq!(async_content_value().await, 2);
+async fn scoped_macro_applies_defaults_async() {
+    assert_eq!(async_file_value().await, 2);
 }
 
 // Item-level `async(flavor = async_fn)` must override an `async_trait` scope
@@ -110,12 +110,12 @@ mod flavor_override {
 
     use super::*;
 
-    #[dual(async(flavor = async_fn))]
+    #[ambisync(async(flavor = async_fn))]
     pub trait AsyncLocalTask {
         async fn async_run(&self);
     }
 
-    #[dual(
+    #[ambisync(
         async(flavor = async_fn),
         sync(types(AsyncLocalTask => LocalTask)),
     )]
@@ -146,10 +146,10 @@ async fn scoped_async_fn_override_accepts_non_send_future() {
 }
 
 // Arrow patterns are ordinary defaults, so they work in `scope` (and
-// `content!`) unchanged.
+// `scoped!`) unchanged.
 #[ambisync::scope(async(feature = "async"), sync(pattern = "async_{} => sync_{}"))]
 mod arrow_scoped {
-    #[dual]
+    #[ambisync]
     pub async fn async_answer() -> u32 {
         42
     }

@@ -1,6 +1,6 @@
 # ambisync
 
-Write the async form once; `#[ambisync::dual]` derives the sync variant
+Write the async form once; `#[ambisync]` derives the sync variant
 mechanically.
 
 Libraries that ship both sync and async APIs maintain parallel code paths that
@@ -9,7 +9,9 @@ are identical except for `.await` points, item names (e.g. `read` / `async_read`
 collapses each such pair into a single async-written item:
 
 ```rust
-#[ambisync::dual(
+use ambisync::ambisync;
+
+#[ambisync(
     sync(name = "read", types(AsyncStore => Store)),
     async(feature = "async"),
 )]
@@ -35,7 +37,7 @@ pub fn read(store: &Store, key: &str) -> Option<Vec<u8>> {
 
 The annotated item is written in async form — async types, async bodies,
 `.await` — so the source is real, compilable async code that rust-analyzer and
-rustfmt understand. `#[dual]` clones the item and runs a syntactic rewriter
+rustfmt understand. `#[ambisync]` clones the item and runs a syntactic rewriter
 once per variant:
 
 - **async variant** — the source as written, with helper attributes removed
@@ -84,7 +86,7 @@ async-written source; the async expansion uses it verbatim.
 
 ## Item coverage
 
-`#[dual]` applies to `fn`, `trait`, `impl` (inherent and trait impls),
+`#[ambisync]` applies to `fn`, `trait`, `impl` (inherent and trait impls),
 `struct`, and `enum`:
 
 - **Traits** — the trait is renamed via `name`/`type_pattern`, methods via
@@ -114,14 +116,14 @@ ambisync::async_only! {
 ```
 
 These are real exported macros, so unexpanded code still parses for
-rust-analyzer/rustfmt; `#[dual]` resolves them during expansion, and each arm
+rust-analyzer/rustfmt; `#[ambisync]` resolves them during expansion, and each arm
 is only type-checked in its own expansion.
 
 Struct fields, enum variants, and trait/impl members can be kept in only one
 expansion with `#[sync_only]` / `#[async_only]`:
 
 ```rust
-#[ambisync::dual(sync(name = "Options"), async(feature = "async"))]
+#[ambisync(sync(name = "Options"), async(feature = "async"))]
 pub struct AsyncOptions {
     pub common: u32,
     #[sync_only]
@@ -130,7 +132,7 @@ pub struct AsyncOptions {
     pub concurrency: usize,  // only on `AsyncOptions`
 }
 
-#[ambisync::dual(sync(name = "Mode"), async(feature = "async"))]
+#[ambisync(sync(name = "Mode"), async(feature = "async"))]
 pub enum AsyncMode {
     Shared,
     #[sync_only]
@@ -139,7 +141,7 @@ pub enum AsyncMode {
     Concurrent { concurrency: usize }, // only on `AsyncMode`
 }
 
-#[ambisync::dual(
+#[ambisync(
     sync(name = "Fetch", pattern = "async_{}"),
     async(feature = "async"),
 )]
@@ -177,7 +179,7 @@ the macro attaches the rewritten shared contents (a function's body, a
 trait/impl's members, a struct's fields, an enum's variants):
 
 ```rust
-#[ambisync::dual(
+#[ambisync(
     sync(declaration {
         /// Read using blocking I/O.
         #[must_use]
@@ -207,7 +209,7 @@ a module:
     async(feature = "async"),
 )]
 mod ops {
-    #[dual]
+    #[ambisync]
     async fn async_get(store: &AsyncStore, key: &str) -> Option<Vec<u8>> { ... }
 
     #[ambisync::test]
@@ -216,7 +218,7 @@ mod ops {
 ```
 
 `scope` requires an inline module; for file modules (`mod foo;`) use
-`ambisync::content! { #![defaults(...)] ... }` inside the file. Item-level
+`ambisync::scoped! { #![defaults(...)] ... }` inside the file. Item-level
 options override the defaults; substitution tables concatenate, with item
 entries taking precedence.
 
@@ -251,7 +253,7 @@ pairing:
 - **Macro bodies are rewritten best-effort** in the sync expansion: `.await`
   stripping, single-ident type substitutions, and `name(...)` call renames.
   Anything fancier inside `format!`-likes needs `alt!`.
-- **Whole-item expansion.** `#[dual]` always yields both variants of the whole
+- **Whole-item expansion.** `#[ambisync]` always yields both variants of the whole
   item — no partial extraction. The escape hatch is writing the two items by
   hand; the macro is never mandatory.
 

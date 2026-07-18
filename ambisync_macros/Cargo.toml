@@ -9,6 +9,7 @@ repository.workspace = true
 description = "Proc-macro implementation for the ambisync crate"
 keywords.workspace = true
 categories.workspace = true
+documentation = "https://docs.rs/ambisync_macros"
 
 [lib]
 proc-macro = true

@@ -6,7 +6,7 @@ fn value() -> u32 {
     1
 }
 
-#[ambisync::dual(
+#[ambisync::ambisync(
     sync(name = "read"),
     async(name = "async_read"),
     calls(async_value => value),

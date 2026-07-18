@@ -1,4 +1,4 @@
-#[ambisync::dual(sync(name = "value"), async(name = "value"))]
+#[ambisync::ambisync(sync(name = "value"), async(name = "value"))]
 async fn source_value() -> u32 {
     1
 }

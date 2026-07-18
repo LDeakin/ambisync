@@ -1,4 +1,4 @@
-//! The core dual rewriter: one `VisitMut` pass, run once per variant over a
+//! The core two-variant rewriter: one `VisitMut` pass, run once per variant over a
 //! cloned item.
 //!
 //! The source is written in async form, so the async pass only resolves the

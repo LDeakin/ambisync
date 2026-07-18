@@ -1,11 +1,11 @@
-//! `#[ambisync::dual]` on free functions: the source is written entirely in
+//! `#[ambisync]` on free functions: the source is written entirely in
 //! async form (async names, async types, `.await`); the sync variant is
 //! derived. Covers renaming, gating, `sync(types(...))`, `sync(calls(...))`,
 //! markers, declarations, and macro-token rewriting.
 
 #![allow(dead_code)]
 
-use ambisync::dual;
+use ambisync::ambisync;
 
 pub struct Store {
     pub value: u32,
@@ -32,7 +32,7 @@ async fn async_make_store() -> AsyncStore {
     AsyncStore { value: 2 }
 }
 
-#[dual(
+#[ambisync(
     async(feature = "async"),
     sync(
         pattern = "async_{}",
@@ -69,7 +69,7 @@ impl AsyncStore {
     }
 }
 
-#[dual(
+#[ambisync(
     sync(pattern = "async_{}", types(AsyncStore => Store)),
     async(feature = "async"),
 )]
@@ -91,7 +91,7 @@ async fn async_expr_paths_untouched() {
 }
 
 // Markers: alt!, sync_only!, async_only!.
-#[dual(sync(pattern = "async_{}"), async(feature = "async"))]
+#[ambisync(sync(pattern = "async_{}"), async(feature = "async"))]
 async fn async_which_variant() -> String {
     let mut parts: Vec<&str> = Vec::new();
     ambisync::sync_only! {
@@ -119,7 +119,7 @@ async fn async_markers_resolve() {
 // Best-effort rewriting inside macro token streams: `.await` stripped, type
 // idents substituted, and call names renamed for the sync variant; the async
 // variant keeps macro bodies verbatim.
-#[dual(
+#[ambisync(
     async(feature = "async"),
     sync(
         pattern = "async_{}",
@@ -143,7 +143,7 @@ async fn async_macro_tokens_verbatim() {
 }
 
 // Both variants independently feature-gated.
-#[dual(sync(feature = "sync", pattern = "async_{}"), async(feature = "async"))]
+#[ambisync(sync(feature = "sync", pattern = "async_{}"), async(feature = "async"))]
 async fn async_gated_both() -> u32 {
     11
 }
@@ -161,7 +161,7 @@ async fn async_gate_applies() {
 }
 
 // Suffix-style patterns are supported as well as prefixes.
-#[dual(sync(pattern = "{}_async"), async(feature = "async"))]
+#[ambisync(sync(pattern = "{}_async"), async(feature = "async"))]
 async fn suffix_styled_async() -> u32 {
     7
 }
@@ -194,7 +194,7 @@ impl AsyncDecode for Dec {
     }
 }
 
-#[dual(
+#[ambisync(
     async(feature = "async"),
     sync(
         pattern = "async_{}",
@@ -240,7 +240,7 @@ pub mod mod_y {
     }
 }
 
-#[dual(
+#[ambisync(
     sync(name = "module_qualified", types(mod_x::AsyncThing => mod_y::Thing)),
     async(feature = "async"),
 )]
@@ -261,7 +261,7 @@ async fn async_module_qualified_types_verbatim() {
 }
 
 // sync_attr/async_attr passthrough.
-#[dual(sync(pattern = "async_{}"), async(feature = "async"))]
+#[ambisync(sync(pattern = "async_{}"), async(feature = "async"))]
 #[sync_attr(allow(clippy::unused_unit))]
 #[async_attr(allow(clippy::unused_async))]
 async fn async_passthrough() -> u32 {
@@ -276,7 +276,7 @@ fn passthrough_compiles() {
 // Async blocks and closures become synchronous closure calls/closures. The
 // `return` in the block must stay scoped to that block rather than returning
 // from the generated sync function.
-#[dual(sync(name = "nested_async_forms"), async(feature = "async"))]
+#[ambisync(sync(name = "nested_async_forms"), async(feature = "async"))]
 async fn async_nested_async_forms(seed: u32) -> u32 {
     let from_block = async move {
         if seed == 0 {
@@ -304,7 +304,7 @@ async fn async_nested_forms_remain_async() {
 
 // Exact names allow the source to use a neutral internal name while both
 // public output names remain explicit.
-#[dual(
+#[ambisync(
     sync(name = "explicit_sync_name"),
     async(feature = "async", name = "explicit_async_name")
 )]
@@ -318,7 +318,7 @@ fn exact_sync_name_is_used() {
 }
 
 // Variant docs and arbitrary item attributes are symmetric.
-#[dual(
+#[ambisync(
     sync(
         name = "metadata_sync",
         doc = "Blocking-specific details.",
@@ -366,7 +366,7 @@ impl DeclaredAsyncInput {
 // A declaration replaces the derived signature after the body is rewritten.
 // In particular, its `DeclaredSyncInput` type must not be passed through the
 // substitution machinery.
-#[dual(
+#[ambisync(
     sync(declaration {
         /// Complete blocking declaration.
         #[must_use]
@@ -401,7 +401,7 @@ async fn source_supplies_the_async_signature() {
 
 // Both output signatures can be explicit while the shared implementation
 // keeps an internal source name.
-#[dual(
+#[ambisync(
     sync(declaration {
         pub fn both_declared_sync(input: &DeclaredSyncInput) -> u32;
     }),
@@ -431,7 +431,7 @@ async fn explicit_async_declaration_is_used() {
 
 // Functions also accept an ordinary empty-body item shell in addition to the
 // compact body-less declaration form.
-#[dual(
+#[ambisync(
     sync(declaration {
         pub fn braced_declared_sync(input: &DeclaredSyncInput) -> u32 {}
     }),
@@ -460,7 +460,7 @@ async fn exact_async_name_is_used() {
 
 // Arrow patterns map the async spelling to a sync spelling built from the
 // same `{}` stem instead of just stripping the affix.
-#[dual(sync(pattern = "async_{} => sync_{}"), async(feature = "async"))]
+#[ambisync(sync(pattern = "async_{} => sync_{}"), async(feature = "async"))]
 async fn async_doubled(x: u32) -> u32 {
     x * 2
 }
@@ -478,7 +478,7 @@ async fn arrow_pattern_keeps_the_async_name() {
 
 // Purely additive arrow patterns: the sync side can add an affix the async
 // spelling never had.
-#[dual(sync(pattern = "{} => {}_blocking"), async(feature = "async"))]
+#[ambisync(sync(pattern = "{} => {}_blocking"), async(feature = "async"))]
 async fn fetch_count() -> u32 {
     9
 }

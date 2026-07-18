@@ -1,7 +1,7 @@
 struct Store;
 struct AsyncStore;
 
-#[ambisync::dual(
+#[ambisync::ambisync(
     sync(name = "value"),
     async(name = "async_value"),
     types(AsyncStore => Store),

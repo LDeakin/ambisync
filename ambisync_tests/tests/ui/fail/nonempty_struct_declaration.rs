@@ -1,4 +1,4 @@
-#[ambisync::dual(
+#[ambisync::ambisync(
     sync(declaration {
         struct Value {
             value: u32,

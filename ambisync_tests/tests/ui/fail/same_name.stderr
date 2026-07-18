@@ -1,5 +1,5 @@
 error: the sync and async variants would both be named `value`; choose a distinct `sync(name = ...)` or `async(name = ...)`
- --> tests/ui/fail/same_name.rs:1:30
+ --> tests/ui/fail/same_name.rs:1:34
   |
-1 | #[ambisync::dual(sync(name = "value"), async(name = "value"))]
-  |                              ^^^^^^^
+1 | #[ambisync::ambisync(sync(name = "value"), async(name = "value"))]
+  |                                  ^^^^^^^

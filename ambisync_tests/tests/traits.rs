@@ -1,11 +1,11 @@
-//! `#[ambisync::dual]` on traits and trait impls: trait renaming, method
+//! `#[ambisync]` on traits and trait impls: trait renaming, method
 //! renaming, default bodies, trait-impl target renaming via the types table,
 //! and the `async_trait` flavor. The source is the async trait; the sync
 //! trait is derived.
 
 #![allow(dead_code)]
 
-use ambisync::dual;
+use ambisync::ambisync;
 
 pub struct Conn;
 pub struct AsyncConn;
@@ -21,7 +21,7 @@ impl AsyncConn {
     }
 }
 
-#[dual(
+#[ambisync(
     async(feature = "async"),
     sync(
         pattern = "async_{}",
@@ -49,7 +49,7 @@ pub struct AsyncClient {
     conn: AsyncConn,
 }
 
-#[dual(
+#[ambisync(
     async(feature = "async"),
     sync(
         pattern = "async_{}",
@@ -78,7 +78,7 @@ async fn async_trait_with_default_bodies() {
 }
 
 // async(flavor = async_trait): dyn-safe traits via #[async_trait::async_trait].
-#[dual(
+#[ambisync(
     sync(pattern = "async_{}", type_pattern = "Async{}"),
     async(feature = "async", flavor = async_trait),
 )]
@@ -88,7 +88,7 @@ pub trait AsyncValue {
 
 pub struct Fixed;
 
-#[dual(
+#[ambisync(
     sync(pattern = "async_{}", types(AsyncValue => Value)),
     async(feature = "async", flavor = async_trait),
 )]
@@ -116,7 +116,7 @@ async fn async_trait_flavor_object() {
 pub struct GenericHolder<T>(T);
 pub struct AsyncGenericHolder<T>(T);
 
-#[dual(
+#[ambisync(
     sync(name = "GenericTake", pattern = "async_{}"),
     async(feature = "async")
 )]
@@ -124,7 +124,7 @@ pub trait AsyncGenericTake<T> {
     async fn async_take(&self) -> T;
 }
 
-#[dual(
+#[ambisync(
     sync(
         pattern = "async_{}",
         types(
@@ -152,7 +152,7 @@ async fn async_generic_trait_impl_is_unchanged() {
 }
 
 // Per-variant trait members: default-bodied helpers kept in one variant only.
-#[dual(
+#[ambisync(
     sync(pattern = "async_{}", type_pattern = "Async{}"),
     async(feature = "async")
 )]

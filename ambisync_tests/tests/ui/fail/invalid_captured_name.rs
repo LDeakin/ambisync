@@ -1,4 +1,4 @@
-#[ambisync::dual(sync(pattern = "async_{}"))]
+#[ambisync::ambisync(sync(pattern = "async_{}"))]
 async fn async_1() {}
 
 fn main() {}

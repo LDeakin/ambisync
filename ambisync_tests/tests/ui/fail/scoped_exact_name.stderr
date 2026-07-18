@@ -1,4 +1,4 @@
-error: exact variant names and declarations are item-specific and cannot be scope/content defaults; put them on the item
+error: exact variant names and declarations are item-specific and cannot be scope/scoped! defaults; put them on the item
  --> tests/ui/fail/scoped_exact_name.rs:1:31
   |
 1 | #[ambisync::scope(sync(name = "value"))]

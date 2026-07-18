@@ -115,7 +115,7 @@ impl SubstTable {
     }
 
     /// Register an automatic method rename (from renaming the methods of a
-    /// dual trait/impl) so that calls in bodies follow the rename.
+    /// two-variant trait/impl) so that calls in bodies follow the rename.
     pub fn add_auto_call(&mut self, from: &Ident, to: &Ident) {
         // User-provided `sync(calls(...))` entries were added first and win.
         self.calls.push((from.to_string(), to.clone()));

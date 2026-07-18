@@ -1,4 +1,4 @@
-#[ambisync::dual(
+#[ambisync::ambisync(
     sync(declaration {
         fn value() -> u32 {
             1

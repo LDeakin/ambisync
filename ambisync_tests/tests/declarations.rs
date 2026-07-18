@@ -1,10 +1,10 @@
-//! Complete variant declarations for every item kind supported by `dual`.
+//! Complete variant declarations for every item kind supported by `#[ambisync]`.
 
 #![allow(dead_code)]
 
-use ambisync::dual;
+use ambisync::ambisync;
 
-#[dual(
+#[ambisync(
     sync(declaration {
         /// Blocking record declaration.
         #[derive(Debug, PartialEq)]
@@ -29,7 +29,7 @@ struct InternalRecord<T> {
     pub value: T,
 }
 
-#[dual(
+#[ambisync(
     sync(
         pattern = "async_{}",
         declaration {
@@ -64,7 +64,7 @@ async fn async_struct_and_inherent_impl_declarations_are_used() {
     assert_eq!(record, AsyncDeclaredRecord { value: 5 });
 }
 
-#[dual(
+#[ambisync(
     sync(declaration {
         #[derive(Debug, PartialEq)]
         pub struct DeclaredTuple {}
@@ -79,7 +79,7 @@ async fn async_struct_and_inherent_impl_declarations_are_used() {
 )]
 struct InternalTuple(pub u32);
 
-#[dual(
+#[ambisync(
     sync(declaration {
         #[derive(Debug, PartialEq)]
         pub struct DeclaredUnit {}
@@ -107,7 +107,7 @@ fn async_tuple_and_unit_struct_contents_are_preserved() {
     assert_eq!(AsyncDeclaredUnit, AsyncDeclaredUnit);
 }
 
-#[dual(
+#[ambisync(
     sync(declaration {
         /// Blocking choice declaration.
         #[derive(Debug, PartialEq)]
@@ -139,7 +139,7 @@ fn async_enum_declaration_receives_shared_variants() {
 
 // Native async-trait lint suppression is applied after the declaration shell,
 // so replacing the outer attributes cannot discard it.
-#[dual(
+#[ambisync(
     sync(
         pattern = "async_{}",
         declaration {
@@ -157,7 +157,7 @@ trait InternalNative {
     async fn async_ping(&self) {}
 }
 
-#[dual(
+#[ambisync(
     sync(
         pattern = "async_{}",
         declaration {
@@ -184,7 +184,7 @@ trait InternalRead {
 
 pub struct Reader(u32);
 
-#[dual(
+#[ambisync(
     sync(
         pattern = "async_{}",
         declaration {
