@@ -66,6 +66,7 @@
 //! | `types("Async{}", ...)` | ✓ | — | pattern entry: covers every matching type ident (`AsyncStore` → `Store`) |
 //! | `fns(f => g, ...)` | ✓ | — | fn-namespace rename table: names the annotated fn/methods and renames calls (the `.await` lives in the source) |
 //! | `fns("{}_async", ...)` | ✓ | — | pattern entry: covers every matching fn name (`read_async` → `read`) |
+//! | `#[sync_bounds(...)]` / `#[async_bounds(...)]` | ✓ | ✓ | replace a generic type parameter's bounds for one variant; an empty list removes all bounds |
 //! | `flavor = async_fn \| async_trait` | — | ✓ | async trait/impl emission style |
 //! | `send = true \| false \| cfg(...)` | — | ✓ | with `async_trait`: `Send`-ness of the emission (default `Send`) |
 //!
@@ -228,6 +229,18 @@
 //! Intra-doc links and prose therefore follow each variant's names: \[`AsyncStore`\] becomes \[`Store`\], \[`mod_x::AsyncThing`\] becomes \[`mod_y::Thing`\], and \[`async_read`\] becomes \[`read`\].
 //! Append variant-specific paragraphs with `sync(doc = "...")` / `async(doc = "...")`.
 //! Use `#[sync_attr(...)]` / `#[async_attr(...)]` for attributes that belong to one variant only.
+//! Generic type parameter bounds can likewise diverge without duplicating an item. The source bounds
+//! are used unless that variant has an explicit override; an empty override removes all bounds:
+//!
+//! ```
+//! # use ambisync::ambisync;
+//! # trait MaybeSend {}
+//! #[ambisync(sync(fns("async_{}")))]
+//! async fn async_store<#[sync_bounds()] T: MaybeSend>(value: T) {
+//!     let _ = value;
+//! }
+//! # store(String::new());
+//! ```
 //!
 //! # wasm and `Send`
 //!

@@ -53,6 +53,64 @@ async fn async_fn_is_source_verbatim() {
     assert_eq!(async_read_value().await, 2);
 }
 
+trait AsyncBound {
+    fn variant() -> &'static str;
+}
+trait SyncBound {
+    fn variant() -> &'static str;
+}
+trait CommonBound {}
+
+impl AsyncBound for u8 {
+    fn variant() -> &'static str {
+        "async"
+    }
+}
+impl SyncBound for u16 {
+    fn variant() -> &'static str {
+        "sync"
+    }
+}
+impl CommonBound for u8 {}
+impl CommonBound for u16 {}
+
+#[ambisync(sync(fns("async_{}")), async(feature = "async"))]
+async fn async_variant_bounds<
+    #[sync_bounds(SyncBound + CommonBound)] T: AsyncBound + CommonBound,
+>() -> &'static str {
+    T::variant()
+}
+
+#[test]
+fn sync_type_parameter_bounds_are_overridden() {
+    assert_eq!(variant_bounds::<u16>(), "sync");
+}
+
+#[cfg(feature = "async")]
+#[tokio::test]
+async fn async_type_parameter_bounds_remain_the_source_bounds() {
+    assert_eq!(async_variant_bounds::<u8>().await, "async");
+}
+
+#[ambisync(sync(fns("async_{}")), async(feature = "async"))]
+async fn async_explicit_variant_bounds<
+    #[sync_bounds()]
+    #[async_bounds(AsyncBound)] T: CommonBound,
+>() {
+    let _ = core::marker::PhantomData::<T>;
+}
+
+#[test]
+fn sync_bounds_can_be_empty() {
+    explicit_variant_bounds::<String>();
+}
+
+#[cfg(feature = "async")]
+#[tokio::test]
+async fn async_bounds_can_override_source_bounds() {
+    async_explicit_variant_bounds::<u8>().await;
+}
+
 // Path substitution in expression position (`AsyncStore::build`-style associated fns and struct literals).
 impl Store {
     fn build() -> Store {

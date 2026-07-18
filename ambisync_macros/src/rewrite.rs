@@ -5,11 +5,12 @@
 
 use proc_macro2::Span;
 use syn::parse::{Parse, ParseStream};
+use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 use syn::visit_mut::{self, VisitMut};
 use syn::{
     Attribute, Block, Expr, ExprBlock, Ident, Lit, LitStr, Macro, Meta, Pat, Path, Stmt, Token,
-    TraitBound,
+    TraitBound, TypeParam, TypeParamBound,
 };
 
 use crate::subst::{SubstTable, strip_awaits_in_tokens};
@@ -143,6 +144,45 @@ impl<'a> Rewriter<'a> {
 }
 
 impl VisitMut for Rewriter<'_> {
+    fn visit_type_param_mut(&mut self, param: &mut TypeParam) {
+        let mut replacement = None;
+        let mut attrs = Vec::with_capacity(param.attrs.len());
+        for attr in std::mem::take(&mut param.attrs) {
+            let path = attr.path();
+            let target = if path.is_ident("sync_bounds") || is_ambisync_path(path, "sync_bounds") {
+                Some(Variant::Sync)
+            } else if path.is_ident("async_bounds") || is_ambisync_path(path, "async_bounds") {
+                Some(Variant::Async)
+            } else {
+                None
+            };
+
+            let Some(target) = target else {
+                attrs.push(attr);
+                continue;
+            };
+            if target != self.variant {
+                continue;
+            }
+            if replacement.is_some() {
+                self.record_error(syn::Error::new_spanned(
+                    &attr,
+                    "duplicate bound override for this variant",
+                ));
+                continue;
+            }
+            match attr.parse_args_with(Punctuated::<TypeParamBound, Token![+]>::parse_terminated) {
+                Ok(bounds) => replacement = Some(bounds),
+                Err(err) => self.record_error(err),
+            }
+        }
+        param.attrs = attrs;
+        if let Some(bounds) = replacement {
+            param.bounds = bounds;
+        }
+        visit_mut::visit_type_param_mut(self, param);
+    }
+
     fn visit_block_mut(&mut self, block: &mut Block) {
         let stmts = std::mem::take(&mut block.stmts);
         let count = stmts.len();
@@ -345,4 +385,10 @@ impl VisitMut for Rewriter<'_> {
 
 fn unit_expr(span: Span) -> Expr {
     Expr::Verbatim(quote::quote_spanned!(span=> ()))
+}
+
+fn is_ambisync_path(path: &Path, name: &str) -> bool {
+    path.segments.len() == 2
+        && path.segments[0].ident == "ambisync"
+        && path.segments[1].ident == name
 }
