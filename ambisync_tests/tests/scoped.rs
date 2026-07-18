@@ -104,8 +104,6 @@ struct Local(std::rc::Rc<()>);
     async(feature = "async", flavor = async_trait),
 )]
 mod flavor_override {
-    use std::future::ready;
-
     use super::*;
 
     #[ambisync(async(flavor = async_fn))]
@@ -121,7 +119,7 @@ mod flavor_override {
         async fn async_run(&self) {
             let local = self.0.clone();
             ambisync::async_only! {
-                ready(()).await;
+                std::future::ready(()).await;
             }
             drop(local);
         }
