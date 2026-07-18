@@ -9,6 +9,5 @@ rust-version = "1.91"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/LDeakin/ambisync"
-description = "Write sync/async-generic Rust"
 keywords = ["async", "sync", "macro", "generic"]
 categories = ["asynchronous", "rust-patterns"]
