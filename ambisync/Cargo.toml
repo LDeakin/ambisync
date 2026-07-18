@@ -13,3 +13,7 @@ documentation = "https://docs.rs/ambisync"
 
 [dependencies]
 ambisync_macros = { version = "0.1.0", path = "../ambisync_macros" }
+
+[dev-dependencies]
+# For the `async(flavor = async_trait)` doctest.
+async-trait = "0.1"
