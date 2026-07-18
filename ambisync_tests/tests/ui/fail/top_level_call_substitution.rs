@@ -9,7 +9,7 @@ fn value() -> u32 {
 #[ambisync::ambisync(
     sync(name = "read"),
     async(name = "async_read"),
-    calls(async_value => value),
+    fns(async_value => value),
 )]
 async fn source() -> u32 {
     async_value().await

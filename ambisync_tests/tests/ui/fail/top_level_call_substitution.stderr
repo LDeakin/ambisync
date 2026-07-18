@@ -1,5 +1,5 @@
-error: `calls(...)` is sync-specific; move it inside `sync(calls(...))`
+error: `fns(...)` is sync-specific; move it inside `sync(fns(...))`
   --> tests/ui/fail/top_level_call_substitution.rs:12:5
    |
-12 |     calls(async_value => value),
-   |     ^^^^^
+12 |     fns(async_value => value),
+   |     ^^^

@@ -1,7 +1,7 @@
-#[ambisync::ambisync(sync(fn_pattern = "async_{} => {} => {}"))]
+#[ambisync::ambisync(sync(fns("async_{} => {} => {}")))]
 async fn async_read() {}
 
-#[ambisync::ambisync(sync(fn_pattern = "async_{}{} => sync_{}"))]
+#[ambisync::ambisync(sync(fns("async_{}{} => sync_{}")))]
 async fn async_write() {}
 
 fn main() {}

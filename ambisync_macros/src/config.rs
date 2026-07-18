@@ -31,7 +31,8 @@ pub enum SendPolicy {
     Cfg(TokenStream),
 }
 
-/// One `sync(types(AsyncSpelling => SyncSpelling))` entry: the async spelling, matched token-for-token in the sync expansion, and its sync replacement.
+/// One exact `sync(types(AsyncSpelling => SyncSpelling))` entry: the async spelling, matched token-for-token in the sync expansion, and its sync replacement.
+/// A bare single-ident entry matching the annotated type/trait also names its sync variant.
 #[derive(Clone)]
 pub struct TypeSubst {
     pub async_: Type,
@@ -53,14 +54,13 @@ impl Parse for TypeSubst {
     }
 }
 
-/// A `sync(fn_pattern = ...)` / `sync(type_pattern = ...)` rename pattern.
+/// A string-literal pattern entry of the `sync(fns(...))` / `sync(types(...))` rename tables.
 ///
 /// The short form names the async spelling and captures the sync name: `"async_{}"` maps `async_read` to `read`.
 /// The full form maps the async spelling to a sync spelling built from the same `{}` stem: `"async_{} => sync_{}"` maps `async_read` to `sync_read`.
 /// The short form is sugar for `"... => {}"`.
 #[derive(Clone)]
 pub struct RenamePattern {
-    lit: LitStr,
     async_prefix: String,
     async_suffix: String,
     sync_prefix: String,
@@ -85,7 +85,6 @@ impl RenamePattern {
         let (async_prefix, async_suffix) = split_pattern_side(&lit, async_side)?;
         let (sync_prefix, sync_suffix) = split_pattern_side(&lit, sync_side)?;
         Ok(Self {
-            lit,
             async_prefix,
             async_suffix,
             sync_prefix,
@@ -111,10 +110,6 @@ impl RenamePattern {
         }
         Some(format!("{}{stem}{}", self.sync_prefix, self.sync_suffix))
     }
-
-    pub fn value(&self) -> String {
-        self.lit.value()
-    }
 }
 
 fn split_pattern_side(lit: &LitStr, side: &str) -> syn::Result<(String, String)> {
@@ -131,9 +126,9 @@ fn split_pattern_side(lit: &LitStr, side: &str) -> syn::Result<(String, String)>
     Ok((prefix.to_string(), suffix.to_string()))
 }
 
-/// One `sync(calls(async_name => sync_name))` entry: calls and method calls named `async_name` are renamed to `sync_name` in the sync expansion.
+/// One exact `sync(fns(async_name => sync_name))` entry: fns/methods named `async_name` get the sync name `sync_name`, and calls and method calls to `async_name` are renamed in the sync expansion.
 #[derive(Clone)]
-pub struct CallSwap {
+pub struct FnRename {
     pub async_: Ident,
     pub sync: Ident,
 }
@@ -199,26 +194,26 @@ impl Declaration {
     }
 }
 
-impl Parse for CallSwap {
+impl Parse for FnRename {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         if input.peek(syn::token::Brace) {
             return Err(input.error(
                 "`{}` placeholders are not valid in name position; write pattern entries as \
-                 string literals, e.g. `calls(\"{}_async\")` or `calls(\"create_async_{} => create_{}\")`",
+                 string literals, e.g. `fns(\"{}_async\")` or `fns(\"create_async_{} => create_{}\")`",
             ));
         }
         let async_: Ident = input.parse()?;
         if input.peek(syn::token::Brace) {
             return Err(input.error(
                 "`{}` placeholders are not valid in name position; write pattern entries as \
-                 string literals, e.g. `calls(\"async_{}\")` or `calls(\"async_{} => sync_{}\")`",
+                 string literals, e.g. `fns(\"async_{}\")` or `fns(\"async_{} => sync_{}\")`",
             ));
         }
         input.parse::<Token![=>]>()?;
         let sync: Ident = input.parse()?;
         if input.peek(Token![.]) {
             return Err(input.error(
-                "call swaps map names only: the source is written in async form, so write the \
+                "fn renames map names only: the source is written in async form, so write the \
                  `.await` on the call itself; it is stripped in the sync expansion",
             ));
         }
@@ -230,12 +225,8 @@ impl Parse for CallSwap {
 pub struct SyncConfig {
     /// Feature gating the sync expansion.
     pub gate: Option<LitStr>,
-    /// Exact name for the annotated sync item.
+    /// Exact name for the annotated sync item, overriding the rename tables.
     pub name: Option<Ident>,
-    /// Pattern used to derive sync function/method names from async names.
-    pub fn_pattern: Option<RenamePattern>,
-    /// Pattern used to derive sync type/trait names from async names.
-    pub type_pattern: Option<RenamePattern>,
     /// Extra documentation appended to the sync variant.
     pub doc: Option<LitStr>,
     /// Attributes appended to the sync variant.
@@ -244,14 +235,14 @@ pub struct SyncConfig {
     pub test_attr: Option<Vec<Attribute>>,
     /// Complete declaration shell for a generated sync item.
     pub declaration: Option<Declaration>,
-    /// Async-to-sync type substitutions.
+    /// Exact entries of the type-namespace rename table: name the annotated type/trait and substitute type references.
     pub types: Vec<TypeSubst>,
-    /// Pattern entries from `types("Async{}")`: applied to bare type idents the exact entries do not cover.
+    /// Pattern entries of the type-namespace rename table (`types("Async{}")`), consulted after the exact entries.
     pub type_patterns: Vec<RenamePattern>,
-    /// Async-to-sync call substitutions.
-    pub calls: Vec<CallSwap>,
-    /// Pattern entries from `calls("{}_async")`: applied to call names the exact entries do not cover.
-    pub call_patterns: Vec<RenamePattern>,
+    /// Exact entries of the fn-namespace rename table: name the annotated fn/methods and rename calls.
+    pub fns: Vec<FnRename>,
+    /// Pattern entries of the fn-namespace rename table (`fns("{}_async")`), consulted after the exact entries.
+    pub fn_patterns: Vec<RenamePattern>,
 }
 
 #[derive(Clone, Default)]
@@ -305,11 +296,11 @@ impl Parse for Config {
                     parse_sync_config(&content, &mut cfg.sync)?;
                 }
                 "types" => return Err(moved_substitution_error(&key, "types")),
-                "calls" => return Err(moved_substitution_error(&key, "calls")),
+                "fns" => return Err(moved_substitution_error(&key, "fns")),
                 "keep_self" => {
                     return Err(syn::Error::new(
                         key.span(),
-                        "`keep_self` has been removed; use `sync(fn_pattern = \"{}\")` for \
+                        "`keep_self` has been removed; use `sync(fns(\"{}\"))` for \
                          same-named methods (top-level sync and async items must have distinct names)",
                     ));
                 }
@@ -338,10 +329,6 @@ fn parse_sync_config(input: ParseStream, cfg: &mut SyncConfig) -> syn::Result<()
         match key.to_string().as_str() {
             "feature" => set_once(&mut cfg.gate, parse_value(input)?, &key)?,
             "name" => set_once(&mut cfg.name, parse_name(input)?, &key)?,
-            "fn_pattern" => set_once(&mut cfg.fn_pattern, parse_pattern_value(input)?, &key)?,
-            "type_pattern" => {
-                set_once(&mut cfg.type_pattern, parse_pattern_value(input)?, &key)?;
-            }
             "doc" => set_once(&mut cfg.doc, parse_value(input)?, &key)?,
             "attr" => cfg.attrs.extend(parse_attribute_value(input)?),
             "test_attr" => {
@@ -357,16 +344,16 @@ fn parse_sync_config(input: ParseStream, cfg: &mut SyncConfig) -> syn::Result<()
                 parenthesized!(content in input);
                 parse_subst_entries(&content, &mut cfg.types, &mut cfg.type_patterns)?;
             }
-            "calls" => {
+            "fns" => {
                 let content;
                 parenthesized!(content in input);
-                parse_subst_entries(&content, &mut cfg.calls, &mut cfg.call_patterns)?;
+                parse_subst_entries(&content, &mut cfg.fns, &mut cfg.fn_patterns)?;
             }
             _ => {
                 return Err(syn::Error::new(
                     key.span(),
-                    "unknown sync option; expected `feature`, `name`, `fn_pattern`, `type_pattern`, \
-                     `doc`, `attr`, `test_attr`, `declaration`, `types` or `calls`",
+                    "unknown sync option; expected `feature`, `name`, `doc`, `attr`, \
+                     `test_attr`, `declaration`, `types` or `fns`",
                 ));
             }
         }
@@ -422,7 +409,7 @@ fn parse_async_config(input: ParseStream, cfg: &mut AsyncConfig) -> syn::Result<
     Ok(())
 }
 
-/// Parse the entries of `types(...)` / `calls(...)`: exact `A => B` mappings, plus string-literal
+/// Parse the entries of `types(...)` / `fns(...)`: exact `A => B` mappings, plus string-literal
 /// pattern entries (`"Async{}"`, `"{}_async => {}"`) that match any name with the given affixes.
 fn parse_subst_entries<T: Parse>(
     input: ParseStream,
@@ -615,10 +602,6 @@ fn parse_name(input: ParseStream) -> syn::Result<Ident> {
     ident_from_str(&lit.value(), lit.span())
 }
 
-fn parse_pattern_value(input: ParseStream) -> syn::Result<RenamePattern> {
-    RenamePattern::parse(parse_value(input)?)
-}
-
 fn parse_optional_comma(input: ParseStream) -> syn::Result<()> {
     if !input.is_empty() {
         input.parse::<Token![,]>()?;
@@ -639,8 +622,8 @@ fn set_once<T>(slot: &mut Option<T>, value: T, key: &Ident) -> syn::Result<()> {
 
 fn legacy_option_error(key: &Ident) -> syn::Error {
     let replacement = match key.to_string().as_str() {
-        "rename" => "`sync(fn_pattern = \"...\")`",
-        "rename_types" => "`sync(type_pattern = \"...\")`",
+        "rename" => "`sync(fns(\"...\"))`",
+        "rename_types" => "`sync(types(\"...\"))`",
         "async_doc" => "`async(doc = \"...\")`",
         "async_attr" => "`async(attr = #[...])`",
         "flavor" => "`async(flavor = ...)`",
@@ -663,8 +646,6 @@ impl Config {
     pub fn merged_over(mut self, defaults: &Config) -> Config {
         merge_option(&mut self.sync.gate, &defaults.sync.gate);
         merge_option(&mut self.sync.name, &defaults.sync.name);
-        merge_option(&mut self.sync.fn_pattern, &defaults.sync.fn_pattern);
-        merge_option(&mut self.sync.type_pattern, &defaults.sync.type_pattern);
         merge_option(&mut self.sync.doc, &defaults.sync.doc);
         merge_option(&mut self.sync.test_attr, &defaults.sync.test_attr);
         merge_option(&mut self.sync.declaration, &defaults.sync.declaration);
@@ -673,10 +654,10 @@ impl Config {
         self.sync
             .type_patterns
             .extend(defaults.sync.type_patterns.iter().cloned());
-        self.sync.calls.extend(defaults.sync.calls.iter().cloned());
+        self.sync.fns.extend(defaults.sync.fns.iter().cloned());
         self.sync
-            .call_patterns
-            .extend(defaults.sync.call_patterns.iter().cloned());
+            .fn_patterns
+            .extend(defaults.sync.fn_patterns.iter().cloned());
         merge_option(&mut self.async_.gate, &defaults.async_.gate);
         merge_option(&mut self.async_.name, &defaults.async_.name);
         merge_option(&mut self.async_.doc, &defaults.async_.doc);
@@ -766,33 +747,69 @@ fn merge_option<T: Clone>(item: &mut Option<T>, default: &Option<T>) {
     }
 }
 
-/// Compute the sync ident for a source (async) ident, erroring with guidance when no pattern was configured or the name does not match it.
-pub fn sync_ident(
-    exact: Option<&Ident>,
-    pattern: Option<&RenamePattern>,
-    which: &str,
-    async_ident: &Ident,
-) -> syn::Result<Ident> {
-    if let Some(exact) = exact {
-        return Ok(exact.clone());
+impl SyncConfig {
+    /// The sync name of a fn/method: the `name` override (if given for this item), then the `fns(...)` table — exact entries first, then patterns in order.
+    pub fn sync_fn_ident(&self, exact: Option<&Ident>, async_ident: &Ident) -> syn::Result<Ident> {
+        if let Some(exact) = exact {
+            return Ok(exact.clone());
+        }
+        if let Some(entry) = self.fns.iter().find(|entry| entry.async_ == *async_ident) {
+            return Ok(entry.sync.clone());
+        }
+        derive_from_patterns(&self.fn_patterns, async_ident, "fns", "\"async_{}\"")
     }
-    let Some(pattern) = pattern else {
-        return Err(syn::Error::new(
-            async_ident.span(),
-            format!(
-                "cannot derive the sync name of `{async_ident}`: add `sync(name = \"...\")` \
-                 for this item or `sync({which} = \"...\")` (for example \
-                 `sync({which} = \"async_{{}}\")`)"
-            ),
-        ));
+
+    /// The sync name of a type/trait: the `name` override (if given for this item), then the `types(...)` table — exact bare-ident entries first, then patterns in order.
+    pub fn sync_type_ident(
+        &self,
+        exact: Option<&Ident>,
+        async_ident: &Ident,
+    ) -> syn::Result<Ident> {
+        if let Some(exact) = exact {
+            return Ok(exact.clone());
+        }
+        if let Some(sync) = self.types.iter().find_map(|entry| {
+            single_ident(&entry.async_)
+                .filter(|from| *from == async_ident)
+                .and_then(|_| single_ident(&entry.sync))
+        }) {
+            return Ok(sync.clone());
+        }
+        derive_from_patterns(&self.type_patterns, async_ident, "types", "\"Async{}\"")
+    }
+}
+
+/// The ident of a bare single-ident path type (`Store`, not `mod_x::Store` or `Store<T>`), the only type spelling that can name an item.
+fn single_ident(ty: &Type) -> Option<&Ident> {
+    let Type::Path(path) = ty else {
+        return None;
     };
-    pattern.sync_name(async_ident)?.ok_or_else(|| {
-        let value = pattern.value();
-        syn::Error::new(
-            async_ident.span(),
-            format!("`{async_ident}` does not match the `sync({which} = ...)` pattern `{value}`"),
-        )
-    })
+    if path.qself.is_some() || path.path.leading_colon.is_some() || path.path.segments.len() != 1 {
+        return None;
+    }
+    let segment = &path.path.segments[0];
+    segment.arguments.is_none().then_some(&segment.ident)
+}
+
+fn derive_from_patterns(
+    patterns: &[RenamePattern],
+    async_ident: &Ident,
+    which: &str,
+    example: &str,
+) -> syn::Result<Ident> {
+    for pattern in patterns {
+        if let Some(ident) = pattern.sync_name(async_ident)? {
+            return Ok(ident);
+        }
+    }
+    Err(syn::Error::new(
+        async_ident.span(),
+        format!(
+            "cannot derive the sync name of `{async_ident}`: add a matching `sync({which}(...))` \
+             entry (for example `{which}({example})` or `{which}({async_ident} => ...)`), or \
+             `sync(name = \"...\")` on the item"
+        ),
+    ))
 }
 
 pub fn async_ident(configured: Option<&Ident>, source: &Ident) -> Ident {
@@ -853,8 +870,8 @@ mod tests {
     fn bare_placeholder_entries_suggest_string_patterns() {
         for args in [
             quote!(sync(types(Async{} => {}))),
-            quote!(sync(calls({}_async => {}))),
-            quote!(sync(calls(create_async_{} => create_{}))),
+            quote!(sync(fns({}_async => {}))),
+            quote!(sync(fns(create_async_{} => create_{}))),
         ] {
             let err = Config::parse_args(args.clone())
                 .err()
@@ -868,13 +885,55 @@ mod tests {
     fn pattern_entries_parse_alongside_exact_entries() {
         let cfg = Config::parse_args(quote!(sync(
             types("Async{}", AsyncStore => Store),
-            calls("{}_async", "create_async_{} => create_{}", async_helper => helper),
+            fns("{}_async", "create_async_{} => create_{}", async_helper => helper),
         )))
         .expect("valid config");
         assert_eq!(cfg.sync.types.len(), 1);
         assert_eq!(cfg.sync.type_patterns.len(), 1);
-        assert_eq!(cfg.sync.calls.len(), 1);
-        assert_eq!(cfg.sync.call_patterns.len(), 2);
+        assert_eq!(cfg.sync.fns.len(), 1);
+        assert_eq!(cfg.sync.fn_patterns.len(), 2);
+    }
+
+    #[test]
+    fn item_names_derive_from_the_tables() {
+        let cfg = Config::parse_args(quote!(sync(
+            types(AsyncStore => Store, "Async{}"),
+            fns(async_special => special_blocking, "async_{}"),
+        )))
+        .expect("valid config");
+        let ident = |name: &str| Ident::new(name, Span::call_site());
+        // Exact entries name the item; patterns cover the rest; exact wins.
+        assert_eq!(
+            cfg.sync
+                .sync_type_ident(None, &ident("AsyncStore"))
+                .unwrap(),
+            "Store"
+        );
+        assert_eq!(
+            cfg.sync
+                .sync_type_ident(None, &ident("AsyncClient"))
+                .unwrap(),
+            "Client"
+        );
+        assert_eq!(
+            cfg.sync
+                .sync_fn_ident(None, &ident("async_special"))
+                .unwrap(),
+            "special_blocking"
+        );
+        assert_eq!(
+            cfg.sync.sync_fn_ident(None, &ident("async_read")).unwrap(),
+            "read"
+        );
+        // The `name` override beats the tables; no match at all is an error.
+        assert_eq!(
+            cfg.sync
+                .sync_fn_ident(Some(&ident("exact")), &ident("async_read"))
+                .unwrap(),
+            "exact"
+        );
+        assert!(cfg.sync.sync_fn_ident(None, &ident("other")).is_err());
+        assert!(cfg.sync.sync_type_ident(None, &ident("Other")).is_err());
     }
 
     #[test]

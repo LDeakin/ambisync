@@ -1,4 +1,4 @@
-#[ambisync::ambisync(sync(fn_pattern = "async_{}"))]
+#[ambisync::ambisync(sync(fns("async_{}")))]
 async fn async_1() {}
 
 fn main() {}

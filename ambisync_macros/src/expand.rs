@@ -8,7 +8,7 @@ use syn::{
     parse_quote,
 };
 
-use crate::config::{Config, Declaration, Flavor, SendPolicy, async_ident, sync_ident};
+use crate::config::{Config, Declaration, Flavor, SendPolicy, async_ident};
 use crate::rewrite::{Rewriter, Variant};
 use crate::subst::SubstTable;
 
@@ -242,12 +242,8 @@ fn emit_variant(
                     .expect("function declaration has a name")
                     .clone()
             } else {
-                sync_ident(
-                    cfg.sync.name.as_ref(),
-                    cfg.sync.fn_pattern.as_ref(),
-                    "fn_pattern",
-                    &async_name,
-                )?
+                cfg.sync
+                    .sync_fn_ident(cfg.sync.name.as_ref(), &async_name)?
             };
             ensure_distinct(&sync_name, &async_name)?;
             if variant.is_sync() {
@@ -278,12 +274,8 @@ fn emit_variant(
                     .expect("trait declaration has a name")
                     .clone()
             } else {
-                sync_ident(
-                    cfg.sync.name.as_ref(),
-                    cfg.sync.type_pattern.as_ref(),
-                    "type_pattern",
-                    &async_trait_ident,
-                )?
+                cfg.sync
+                    .sync_type_ident(cfg.sync.name.as_ref(), &async_trait_ident)?
             };
             ensure_distinct(&sync_trait_ident, &async_trait_ident)?;
             let output_trait_ident = if variant.is_sync() {
@@ -300,12 +292,7 @@ fn emit_variant(
                     }
                     if variant.is_sync() {
                         method.sig.asyncness = None;
-                        let sync_name = sync_ident(
-                            None,
-                            cfg.sync.fn_pattern.as_ref(),
-                            "fn_pattern",
-                            &method.sig.ident,
-                        )?;
+                        let sync_name = cfg.sync.sync_fn_ident(None, &method.sig.ident)?;
                         table.add_auto_call(&method.sig.ident, &sync_name);
                         method.sig.ident = sync_name;
                     }
@@ -322,7 +309,7 @@ fn emit_variant(
                 return Err(syn::Error::new_spanned(
                     item_impl,
                     "`sync(name = ...)` / `async(name = ...)` cannot name an impl block; \
-                     use `sync(types(...))` for its trait/self types and `sync(fn_pattern = ...)` \
+                     use `sync(types(...))` for its trait/self types and `sync(fns(...))` \
                      for methods",
                 ));
             }
@@ -336,12 +323,7 @@ fn emit_variant(
                     }
                     if variant.is_sync() {
                         method.sig.asyncness = None;
-                        let sync_name = sync_ident(
-                            None,
-                            cfg.sync.fn_pattern.as_ref(),
-                            "fn_pattern",
-                            &method.sig.ident,
-                        )?;
+                        let sync_name = cfg.sync.sync_fn_ident(None, &method.sig.ident)?;
                         table.add_auto_call(&method.sig.ident, &sync_name);
                         method.sig.ident = sync_name;
                     }
@@ -372,12 +354,8 @@ fn emit_variant(
                     .expect("struct declaration has a name")
                     .clone()
             } else {
-                sync_ident(
-                    cfg.sync.name.as_ref(),
-                    cfg.sync.type_pattern.as_ref(),
-                    "type_pattern",
-                    &async_name,
-                )?
+                cfg.sync
+                    .sync_type_ident(cfg.sync.name.as_ref(), &async_name)?
             };
             ensure_distinct(&sync_name, &async_name)?;
             let output_name = if variant.is_sync() {
@@ -418,12 +396,8 @@ fn emit_variant(
                     .expect("enum declaration has a name")
                     .clone()
             } else {
-                sync_ident(
-                    cfg.sync.name.as_ref(),
-                    cfg.sync.type_pattern.as_ref(),
-                    "type_pattern",
-                    &async_name,
-                )?
+                cfg.sync
+                    .sync_type_ident(cfg.sync.name.as_ref(), &async_name)?
             };
             ensure_distinct(&sync_name, &async_name)?;
             let output_name = if variant.is_sync() {
@@ -760,7 +734,7 @@ mod tests {
                 sync(
                     name = "read",
                     types(AsyncStore => Store, mod_x::AsyncThing => mod_y::Thing),
-                    calls(async_helper => helper),
+                    fns(async_helper => helper),
                 ),
                 async(feature = "async"),
             },
@@ -808,9 +782,8 @@ mod tests {
         let out = expand(
             quote! {
                 sync(
-                    fn_pattern = "{}_async",
                     types("Async{}"),
-                    calls("{}_async", "create_async_{} => create_{}"),
+                    fns("{}_async", "create_async_{} => create_{}"),
                 ),
                 async(feature = "async"),
             },
@@ -825,7 +798,7 @@ mod tests {
                 }
             },
         );
-        // Signature: fn name via fn_pattern, types via the `types("Async{}")` pattern.
+        // Signature: fn name via the `fns("{}_async")` pattern, types via `types("Async{}")`.
         assert!(
             out.contains("fn read (store : & Store) -> Vec < Item >"),
             "{out}"
@@ -854,7 +827,7 @@ mod tests {
                 sync(
                     name = "read",
                     types("Async{}", AsyncStore => BlockingStore),
-                    calls("async_{}", async_helper => blocking_helper),
+                    fns("async_{}", async_helper => blocking_helper),
                 ),
                 async(feature = "async"),
             },
@@ -875,7 +848,7 @@ mod tests {
         let expand_with = |async_options: proc_macro2::TokenStream| {
             expand(
                 quote! {
-                    sync(name = "Value", fn_pattern = "async_{}"),
+                    sync(name = "Value", fns("async_{}")),
                     async(flavor = async_trait, #async_options),
                 },
                 quote! {

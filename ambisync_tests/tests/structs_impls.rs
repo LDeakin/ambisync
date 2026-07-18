@@ -19,7 +19,7 @@ impl AsyncConn {
 }
 
 #[ambisync(
-    sync(type_pattern = "Async{}", types(AsyncConn => Conn)),
+    sync(types("Async{}"), types(AsyncConn => Conn)),
     async(feature = "async"),
 )]
 pub struct AsyncClient {
@@ -29,7 +29,7 @@ pub struct AsyncClient {
 #[ambisync(
     async(feature = "async"),
     sync(
-        fn_pattern = "async_{}",
+        fns("async_{}"),
         types(AsyncClient => Client, AsyncConn => Conn),
     ),
 )]
@@ -65,7 +65,7 @@ async fn async_struct_and_impl() {
 }
 
 // Per-variant struct fields.
-#[ambisync(sync(type_pattern = "Async{}"), async(feature = "async"))]
+#[ambisync(sync(types("Async{}")), async(feature = "async"))]
 pub struct AsyncOptions {
     pub common: u32,
     #[sync_only]
@@ -94,7 +94,7 @@ async fn async_only_fields_kept() {
 }
 
 // Per-variant enum variants (and per-variant fields inside variants).
-#[ambisync(sync(type_pattern = "Async{}"), async(feature = "async"))]
+#[ambisync(sync(types("Async{}")), async(feature = "async"))]
 pub enum AsyncMode {
     Shared,
     #[sync_only]
@@ -132,7 +132,7 @@ pub struct AsyncWidget;
 
 #[ambisync(
     async(feature = "async"),
-    sync(fn_pattern = "async_{}", types(AsyncWidget => Widget)),
+    sync(fns("async_{}"), types(AsyncWidget => Widget)),
 )]
 impl AsyncWidget {
     pub fn size(&self) -> u32 {
@@ -185,7 +185,7 @@ pub struct SameNamed;
 pub struct AsyncSameNamed;
 
 #[ambisync(
-    sync(fn_pattern = "{}", types(AsyncSameNamed => SameNamed)),
+    sync(fns("{}"), types(AsyncSameNamed => SameNamed)),
     async(feature = "async"),
 )]
 impl AsyncSameNamed {
@@ -206,14 +206,14 @@ async fn identity_pattern_keeps_async_method_name() {
 }
 
 // Arrow patterns on impls and types: `async_{} => sync_{}` method names and an `Async{} => Sync{}` type pattern, with call-following between methods.
-#[ambisync(sync(type_pattern = "Async{} => Sync{}"), async(feature = "async"))]
+#[ambisync(sync(types("Async{} => Sync{}")), async(feature = "async"))]
 pub struct AsyncPort {
     pub value: u32,
 }
 
 #[ambisync(
     sync(
-        fn_pattern = "async_{} => sync_{}",
+        fns("async_{} => sync_{}"),
         types(AsyncPort => SyncPort),
     ),
     async(feature = "async"),

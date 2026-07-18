@@ -31,7 +31,7 @@ struct InternalRecord<T> {
 
 #[ambisync(
     sync(
-        fn_pattern = "async_{}",
+        fns("async_{}"),
         declaration {
             impl DeclaredRecord<u32> {}
         },
@@ -140,7 +140,7 @@ fn async_enum_declaration_receives_shared_variants() {
 // Native async-trait lint suppression is applied after the declaration shell, so replacing the outer attributes cannot discard it.
 #[ambisync(
     sync(
-        fn_pattern = "async_{}",
+        fns("async_{}"),
         declaration {
             pub trait DeclaredNative {}
         },
@@ -158,7 +158,7 @@ trait InternalNative {
 
 #[ambisync(
     sync(
-        fn_pattern = "async_{}",
+        fns("async_{}"),
         declaration {
             /// Blocking trait declaration.
             pub trait DeclaredRead {}
@@ -185,7 +185,7 @@ pub struct Reader(u32);
 
 #[ambisync(
     sync(
-        fn_pattern = "async_{}",
+        fns("async_{}"),
         declaration {
             impl DeclaredRead for Reader {}
         },

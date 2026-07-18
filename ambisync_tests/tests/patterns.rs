@@ -1,6 +1,6 @@
-//! String-literal pattern entries in `sync(types(...))` / `sync(calls(...))`:
-//! `"Async{}"` renames any matching type ident, `"{}_async"` any matching call,
-//! with exact `A => B` entries taking precedence.
+//! The `sync(types(...))` / `sync(fns(...))` rename tables: exact `A => B` entries and
+//! string-literal pattern entries (`"Async{}"`, `"{}_async"`), naming the annotated items
+//! and rewriting matching types/calls, with exact entries taking precedence.
 
 #![allow(dead_code)]
 
@@ -46,9 +46,8 @@ async fn helper_value_async() -> u32 {
 ambisync::scoped! {
     #![defaults(
         sync(
-            fn_pattern = "{}_async",
             types("Async{}"),
-            calls(
+            fns(
                 "{}_async",
                 "async_{}",
                 "create_async_{} => create_{}",

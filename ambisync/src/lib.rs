@@ -36,18 +36,20 @@
 //!   - `async { ... }` / `async move { ... }` blocks become immediately invoked closures.
 //!     The transformation preserves the block's `return`/`?` boundary and `move` captures.
 //!   - Async closures become ordinary closures.
-//!   - Names are mapped through `sync(name/fn_pattern/type_pattern)`.
-//!   - Types and calls are mapped through the `sync(types(...))` / `sync(calls(...))` tables.
+//!   - Names, type references and calls are all mapped through `sync(name = ...)` and the
+//!     `sync(fns(...))` / `sync(types(...))` rename tables.
 //!
 //! Naming is **always explicit**.
 //! No `async_` prefix or other convention is assumed.
-//! Use an exact name (`sync(name = "read")`) or a pattern when one convention covers methods or multiple items.
-//! A pattern names the async spelling and the `{}` capture is the sync name: `fn_pattern = "async_{}"` maps `async_read` to `read`.
+//! Use an exact name (`sync(name = "read")`) or the two rename tables: `fns(...)` for the fn namespace (functions, methods, calls) and `types(...)` for the type namespace (types, traits).
+//! Entries are exact mappings (`async_read => read`, `AsyncStore => Store`) or string-literal patterns.
+//! A pattern names the async spelling and the `{}` capture is the sync name: `fns("async_{}")` maps `async_read` to `read`.
 //! The arrow form maps the `{}` stem into a different sync spelling.
-//! For example, `fn_pattern = "async_{} => sync_{}"` maps `async_read` to `sync_read`.
-//! Similarly, `type_pattern = "Async{} => Sync{}"` maps `AsyncClient` to `SyncClient`.
-//! `fn_pattern = "{} => {}_blocking"` adds an affix that the async spelling never had.
+//! For example, `fns("async_{} => sync_{}")` maps `async_read` to `sync_read`.
+//! Similarly, `types("Async{} => Sync{}")` maps `AsyncClient` to `SyncClient`.
+//! `fns("{} => {}_blocking")` adds an affix that the async spelling never had.
 //! The short form is sugar for `"... => {}"`.
+//! One table drives everything: the entry that names the annotated item also renames matching references — types, calls, paths, and doc mentions — in the sync expansion.
 //!
 //! The attribute always runs and emits the `#[cfg(feature = ...)]` gates itself — never wrap it in `cfg_attr` — so the expansion stays correct whether both, either, or neither variant is feature-gated.
 //!
@@ -60,35 +62,30 @@
 //! | `doc = "..."` / `attr = #[...]` | ✓ | ✓ | variant-specific docs and item attributes |
 //! | `test_attr = #[...]` | ✓ | ✓ | test attribute (defaults `#[test]` / `#[tokio::test]`) |
 //! | `declaration { ... }` | ✓ | ✓ | complete outer declaration for the variant |
-//! | `fn_pattern = "async_{}"` | ✓ | — | derive sync fn/method names; `{}` captures the sync name |
-//! | `fn_pattern = "async_{} => sync_{}"` | ✓ | — | arrow form: map the async spelling to a sync spelling sharing the `{}` stem |
-//! | `type_pattern = "Async{}"` | ✓ | — | derive sync type/trait names; `{}` captures the sync name |
-//! | `type_pattern = "Async{} => Sync{}"` | ✓ | — | arrow form: map the async spelling to a sync spelling sharing the `{}` stem |
-//! | `types(A => B, ...)` | ✓ | — | type substitutions, token-level, generic-aware; paths may be module-qualified (`mod_x::A => mod_y::B`) |
-//! | `types("Async{}", ...)` | ✓ | — | pattern entry: renames every matching type ident (`AsyncStore` → `Store`) |
-//! | `calls(f => g, ...)` | ✓ | — | call renames (the `.await` lives in the source) |
-//! | `calls("{}_async", ...)` | ✓ | — | pattern entry: renames every matching call name (`read_async` → `read`) |
+//! | `types(A => B, ...)` | ✓ | — | type-namespace rename table: names the annotated type/trait and substitutes type references (token-level, generic-aware; paths may be module-qualified, `mod_x::A => mod_y::B`) |
+//! | `types("Async{}", ...)` | ✓ | — | pattern entry: covers every matching type ident (`AsyncStore` → `Store`) |
+//! | `fns(f => g, ...)` | ✓ | — | fn-namespace rename table: names the annotated fn/methods and renames calls (the `.await` lives in the source) |
+//! | `fns("{}_async", ...)` | ✓ | — | pattern entry: covers every matching fn name (`read_async` → `read`) |
 //! | `flavor = async_fn \| async_trait` | — | ✓ | async trait/impl emission style |
 //! | `send = true \| false \| cfg(...)` | — | ✓ | with `async_trait`: `Send`-ness of the emission (default `Send`) |
 //!
-//! `types` and `calls` are sync-only because they describe how to rewrite the async-written source; the async expansion uses it verbatim.
+//! `types` and `fns` are sync-only because they describe how to rewrite the async-written source; the async expansion uses it verbatim.
 //!
-//! `types(...)` and `calls(...)` entries may mix exact `A => B` mappings with string-literal pattern entries.
-//! Patterns use the same syntax as `fn_pattern`/`type_pattern`: `"Async{}"` is sugar for `"Async{} => {}"`, and the arrow form (`"create_async_{} => create_{}"`) maps the `{}` stem into a different sync spelling.
-//! A pattern matches whole identifiers only: a bare type name, the leading segment of a path (`AsyncStore::new`), a call name, or the corresponding doc-text mentions.
+//! A pattern matches whole identifiers only: a bare type name, the leading segment of a path (`AsyncStore::new`), a fn/method name at its declaration or a call site, or the corresponding doc-text mentions.
 //! Exact entries always win over patterns; among patterns, the first match wins.
+//! An identity entry (`fns(async_probe => async_probe)`) therefore pins a name that a pattern would otherwise rewrite.
 //!
 //! # Item coverage
 //!
 //! `#[ambisync]` applies to `fn`, `trait`, `impl` (inherent and trait impls), `struct`, and `enum`.
 //!
-//! - **Traits**: Rename the trait via `name`/`type_pattern` and methods via `fn_pattern`.
+//! - **Traits**: Rename the trait via `name`/`types(...)` and methods via `fns(...)`.
 //!   Default bodies follow the renames.
 //!   The async trait gets `#[allow(async_fn_in_trait)]`, or you can use `async(flavor = async_trait)`.
 //! - **Impls**: Rewrite the self type and trait path via `types(...)`.
-//!   Rename methods via `fn_pattern`.
+//!   Rename methods via `fns(...)`.
 //!   Calls between renamed methods follow automatically.
-//!   The identity pattern `"{}"` keeps method names unchanged when the sync and async types already provide separate namespaces.
+//!   The identity pattern `fns("{}")` keeps method names unchanged when the sync and async types already provide separate namespaces.
 //! - **Structs / Enums**: The type is renamed and field types are substituted.
 //!
 //! # Divergent code
@@ -130,7 +127,7 @@
 //!     Concurrent { concurrency: usize }, // only on `AsyncMode`
 //! }
 //!
-//! #[ambisync::ambisync(sync(name = "Fetch", fn_pattern = "async_{}"))]
+//! #[ambisync::ambisync(sync(name = "Fetch", fns("async_{}")))]
 //! pub trait AsyncFetch {
 //!     async fn async_get(&self, key: &str) -> Option<Vec<u8>>;
 //!     #[sync_only]
@@ -160,7 +157,7 @@
 //! # fn main() {}
 //! ```
 //!
-//! The full option set of `#[ambisync]` applies, so fixtures can be mapped with `sync(calls(...))` / `sync(types(...))`.
+//! The full option set of `#[ambisync]` applies, so fixtures can be mapped with `sync(fns(...))` / `sync(types(...))`.
 //!
 //! # Explicit declarations
 //!
@@ -205,7 +202,7 @@
 //! # struct AsyncStore(u32);
 //! # impl Store { fn get(&self) -> u32 { self.0 } }
 //! # impl AsyncStore { async fn get(&self) -> u32 { self.0 } }
-//! #[ambisync::scope(sync(fn_pattern = "async_{}", types(AsyncStore => Store)))]
+//! #[ambisync::scope(sync(fns("async_{}"), types(AsyncStore => Store)))]
 //! mod ops {
 //!     use super::*;
 //!
@@ -221,13 +218,13 @@
 //! `scope` requires an inline module.
 //! For file modules (`mod foo;`), use [`scoped!`](macro@scoped) inside the file with a leading `#![defaults(...)]`.
 //! Item-level options override the defaults.
-//! Substitution tables concatenate, with item entries taking precedence.
+//! Rename tables concatenate, with item entries taking precedence.
 //!
 //! # Docs
 //!
 //! Both variants keep the source doc comments.
 //! Doc text receives the same token-level substitutions as code.
-//! These include `types(...)`, `calls(...)`, and item renames matched at identifier boundaries.
+//! These include the `types(...)` / `fns(...)` tables and item renames, matched at identifier boundaries.
 //! Intra-doc links and prose therefore follow each variant's names: \[`AsyncStore`\] becomes \[`Store`\], \[`mod_x::AsyncThing`\] becomes \[`mod_y::Thing`\], and \[`async_read`\] becomes \[`read`\].
 //! Append variant-specific paragraphs with `sync(doc = "...")` / `async(doc = "...")`.
 //! Use `#[sync_attr(...)]` / `#[async_attr(...)]` for attributes that belong to one variant only.
@@ -240,7 +237,7 @@
 //!
 //! ```
 //! #[ambisync::ambisync(
-//!     sync(name = "Fetch", fn_pattern = "async_{}"),
+//!     sync(name = "Fetch", fns("async_{}")),
 //!     async(flavor = async_trait, send = cfg(not(target_arch = "wasm32"))),
 //! )]
 //! pub trait AsyncFetch {

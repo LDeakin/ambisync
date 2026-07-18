@@ -34,8 +34,7 @@ pub fn read(store: &Store, key: &str) -> Option<Vec<u8>> {
 
 `#[ambisync]` covers `fn`, `trait`, `impl`, `struct`, `enum`, and tests, with:
 
-- explicit naming via exact names or `fn_pattern` / `type_pattern` conventions;
-- token-level `types(...)` / `calls(...)` substitution tables — exact `A => B` entries and `"Async{}"` / `"{}_async"`-style pattern entries — that also rewrite doc comments and intra-doc links;
+- explicit naming and token-level substitution via one pair of rename tables — `fns(...)` for the fn namespace, `types(...)` for the type namespace — holding exact `A => B` entries and `"Async{}"` / `"{}_async"`-style pattern entries, applied to item names, type references, calls, doc comments, and intra-doc links;
 - marker macros (`alt!`, `sync_only!`, `async_only!`) for the minority of code that genuinely diverges;
 - explicit outer declarations when one variant needs its own docs, attributes, or signature spelling;
 - module-wide shared defaults via `#[ambisync::scope]` / `scoped!`;

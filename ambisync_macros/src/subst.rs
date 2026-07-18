@@ -24,7 +24,7 @@ pub struct SubstTable {
     calls: Vec<(String, Ident)>,
     /// Pattern entries from `types("Async{}")`, consulted for bare type idents after the exact tables.
     type_patterns: Vec<RenamePattern>,
-    /// Pattern entries from `calls("{}_async")`, consulted for call names after the exact `calls` entries.
+    /// Pattern entries from `fns("{}_async")`, consulted for call names after the exact `calls` entries.
     call_patterns: Vec<RenamePattern>,
     /// Textual spellings of `paths` and `calls` entries, applied to doc comments at identifier boundaries (`[`AsyncStore`]` → `[`Store`]`).
     doc_texts: Vec<(String, String)>,
@@ -36,16 +36,16 @@ impl SubstTable {
         for entry in &cfg.sync.types {
             table.register_type(&entry.async_, &entry.sync, false);
         }
-        for swap in &cfg.sync.calls {
+        for rename in &cfg.sync.fns {
             table
                 .calls
-                .push((swap.async_.to_string(), swap.sync.clone()));
+                .push((rename.async_.to_string(), rename.sync.clone()));
             table
                 .doc_texts
-                .push((swap.async_.to_string(), swap.sync.to_string()));
+                .push((rename.async_.to_string(), rename.sync.to_string()));
         }
         table.type_patterns = cfg.sync.type_patterns.clone();
-        table.call_patterns = cfg.sync.call_patterns.clone();
+        table.call_patterns = cfg.sync.fn_patterns.clone();
         table
     }
 
@@ -114,7 +114,7 @@ impl SubstTable {
 
     /// Register an automatic method rename (from renaming the methods of a two-variant trait/impl) so that calls in bodies follow the rename.
     pub fn add_auto_call(&mut self, from: &Ident, to: &Ident) {
-        // User-provided `sync(calls(...))` entries were added first and win.
+        // User-provided `sync(fns(...))` entries were added first and win.
         self.calls.push((from.to_string(), to.clone()));
         if from != to {
             self.doc_texts.push((from.to_string(), to.to_string()));
