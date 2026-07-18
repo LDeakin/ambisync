@@ -17,8 +17,20 @@ pub enum Flavor {
     /// Native `async fn` (with `#[allow(async_fn_in_trait)]` on traits).
     #[default]
     AsyncFn,
-    /// `#[async_trait::async_trait]`, optionally with the wasm `?Send` pairing.
+    /// `#[async_trait::async_trait]`, with `Send`-ness set by `async(send = ...)`.
     AsyncTrait,
+}
+
+/// `Send`-ness of `async_trait`-flavored emission: `async(send = ...)`.
+#[derive(Clone, Default)]
+pub enum SendPolicy {
+    /// `send = true`: plain `#[async_trait::async_trait]` (the default).
+    #[default]
+    Always,
+    /// `send = false`: `#[async_trait::async_trait(?Send)]`.
+    Never,
+    /// `send = cfg(PRED)`: `Send` where `PRED` holds, `?Send` elsewhere.
+    Cfg(TokenStream),
 }
 
 /// One `sync(types(AsyncSpelling => SyncSpelling))` entry. The left side is the
@@ -244,8 +256,9 @@ pub struct AsyncConfig {
     pub declaration: Option<Declaration>,
     /// Async trait/impl emission style. `None` means the default `async_fn` flavor.
     pub flavor: Option<Flavor>,
-    /// Whether `async_trait` gets the native/wasm `?Send` cfg pairing.
-    pub wasm_send: Option<bool>,
+    /// `Send`-ness of `async_trait` emission, with the `send` key's span for
+    /// validation diagnostics.
+    pub send: Option<(proc_macro2::Span, SendPolicy)>,
 }
 
 #[derive(Clone, Default)]
@@ -286,7 +299,7 @@ impl Parse for Config {
                     ));
                 }
                 "rename" | "rename_types" | "async_doc" | "async_attr" | "flavor" | "wasm_send"
-                | "feature" | "sync_feature" => {
+                | "send" | "feature" | "sync_feature" => {
                     return Err(legacy_option_error(&key));
                 }
                 _ => {
@@ -371,26 +384,61 @@ fn parse_async_config(input: ParseStream, cfg: &mut AsyncConfig) -> syn::Result<
                 let flavor = parse_flavor(flavor)?;
                 set_once(&mut cfg.flavor, flavor, &key)?;
             }
+            "send" => {
+                input.parse::<Token![=]>()?;
+                let policy = parse_send_policy(input)?;
+                set_once(&mut cfg.send, (key.span(), policy), &key)?;
+            }
             "wasm_send" => {
-                let enabled = if input.peek(Token![=]) {
-                    input.parse::<Token![=]>()?;
-                    input.parse::<LitBool>()?.value
-                } else {
-                    true
-                };
-                set_once(&mut cfg.wasm_send, enabled, &key)?;
+                return Err(syn::Error::new(
+                    key.span(),
+                    "`wasm_send` has been removed; use \
+                     `async(send = cfg(not(target_arch = \"wasm32\")))`",
+                ));
             }
             _ => {
                 return Err(syn::Error::new(
                     key.span(),
                     "unknown async option; expected `feature`, `name`, `doc`, `attr`, \
-                     `test_attr`, `declaration`, `flavor` or `wasm_send`",
+                     `test_attr`, `declaration`, `flavor` or `send`",
                 ));
             }
         }
         parse_optional_comma(input)?;
     }
     Ok(())
+}
+
+/// Parse the value of `async(send = ...)`: `true`, `false`, or `cfg(PRED)`.
+fn parse_send_policy(input: ParseStream) -> syn::Result<SendPolicy> {
+    if input.peek(LitBool) {
+        let value: LitBool = input.parse()?;
+        return Ok(if value.value {
+            SendPolicy::Always
+        } else {
+            SendPolicy::Never
+        });
+    }
+    let ident: Ident = input
+        .parse()
+        .map_err(|_| input.error("expected `send = true`, `send = false`, or `send = cfg(...)`"))?;
+    if ident != "cfg" {
+        return Err(syn::Error::new(
+            ident.span(),
+            "expected `send = true`, `send = false`, or `send = cfg(...)`",
+        ));
+    }
+    let predicate;
+    parenthesized!(predicate in input);
+    let predicate: TokenStream = predicate.parse()?;
+    if predicate.is_empty() {
+        return Err(syn::Error::new(
+            ident.span(),
+            "`send = cfg(...)` requires a cfg predicate, e.g. \
+             `send = cfg(not(target_arch = \"wasm32\"))`",
+        ));
+    }
+    Ok(SendPolicy::Cfg(predicate))
 }
 
 fn parse_attribute_value(input: ParseStream) -> syn::Result<Vec<Attribute>> {
@@ -565,7 +613,7 @@ fn legacy_option_error(key: &Ident) -> syn::Error {
         "async_doc" => "`async(doc = \"...\")`",
         "async_attr" => "`async(attr = #[...])`",
         "flavor" => "`async(flavor = ...)`",
-        "wasm_send" => "`async(wasm_send)`",
+        "wasm_send" | "send" => "`async(send = ...)`",
         _ => "`sync(feature = \"...\")` / `async(feature = \"...\")`",
     };
     syn::Error::new(
@@ -599,7 +647,7 @@ impl Config {
         merge_option(&mut self.async_.test_attr, &defaults.async_.test_attr);
         merge_option(&mut self.async_.declaration, &defaults.async_.declaration);
         merge_option(&mut self.async_.flavor, &defaults.async_.flavor);
-        merge_option(&mut self.async_.wasm_send, &defaults.async_.wasm_send);
+        merge_option(&mut self.async_.send, &defaults.async_.send);
         self.async_
             .attrs
             .extend(defaults.async_.attrs.iter().cloned());
@@ -610,20 +658,21 @@ impl Config {
         self.async_.flavor.unwrap_or_default()
     }
 
-    pub fn wasm_send(&self) -> bool {
-        self.async_.wasm_send.unwrap_or(false)
+    pub fn send_policy(&self) -> SendPolicy {
+        self.async_
+            .send
+            .as_ref()
+            .map_or(SendPolicy::Always, |(_, policy)| policy.clone())
     }
 
     pub fn validate_effective(&self) -> syn::Result<()> {
-        if self.wasm_send() && self.flavor() != Flavor::AsyncTrait {
-            let span = self
-                .async_
-                .name
-                .as_ref()
-                .map_or_else(proc_macro2::Span::call_site, Ident::span);
+        if let Some((span, _)) = &self.async_.send
+            && self.flavor() != Flavor::AsyncTrait
+        {
             return Err(syn::Error::new(
-                span,
-                "`async(wasm_send)` requires `async(flavor = async_trait)`",
+                *span,
+                "`async(send = ...)` requires `async(flavor = async_trait)`; native \
+                 `async fn` infers the future's `Send`-ness from the body",
             ));
         }
         validate_declaration_options(

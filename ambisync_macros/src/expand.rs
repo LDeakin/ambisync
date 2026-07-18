@@ -10,7 +10,7 @@ use syn::{
     parse_quote,
 };
 
-use crate::config::{Config, Declaration, Flavor, async_ident, sync_ident};
+use crate::config::{Config, Declaration, Flavor, SendPolicy, async_ident, sync_ident};
 use crate::rewrite::{Rewriter, Variant};
 use crate::subst::SubstTable;
 
@@ -713,14 +713,28 @@ fn append_doc(attrs: &mut Vec<Attribute>, extra: &LitStr) {
 }
 
 fn async_trait_attrs(cfg: &Config) -> Vec<Attribute> {
-    if cfg.wasm_send() {
-        vec![
-            parse_quote!(#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]),
-            parse_quote!(#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]),
-        ]
-    } else {
-        vec![parse_quote!(#[async_trait::async_trait])]
+    match cfg.send_policy() {
+        SendPolicy::Always => vec![parse_quote!(#[async_trait::async_trait])],
+        SendPolicy::Never => vec![parse_quote!(#[async_trait::async_trait(?Send)])],
+        SendPolicy::Cfg(predicate) => {
+            let negated = negate_cfg_predicate(&predicate);
+            vec![
+                parse_quote!(#[cfg_attr(#predicate, async_trait::async_trait)]),
+                parse_quote!(#[cfg_attr(#negated, async_trait::async_trait(?Send))]),
+            ]
+        }
     }
+}
+
+/// Negate a cfg predicate, unwrapping a top-level `not(...)` instead of
+/// stacking `not(not(...))`.
+fn negate_cfg_predicate(predicate: &TokenStream) -> TokenStream {
+    if let Ok(Meta::List(list)) = syn::parse2::<Meta>(predicate.clone())
+        && list.path.is_ident("not")
+    {
+        return list.tokens;
+    }
+    quote!(not(#predicate))
 }
 
 fn ensure_distinct(sync: &Ident, async_: &Ident) -> syn::Result<()> {
@@ -799,5 +813,44 @@ mod tests {
         assert!(out.contains("[`read`]"));
         assert!(out.contains("[`async_read`]"));
         assert!(!out.contains("internal_read"));
+    }
+
+    /// The three `async(send = ...)` policies control `async_trait` emission:
+    /// plain (default / `true`), `?Send` (`false`), and the `cfg_attr` pairing
+    /// (`cfg(PRED)`), with a top-level `not(...)` predicate unwrapped rather
+    /// than double-negated.
+    #[test]
+    fn send_policies_control_async_trait_emission() {
+        let expand_with = |async_options: proc_macro2::TokenStream| {
+            expand(
+                quote! {
+                    sync(name = "Value", pattern = "async_{}"),
+                    async(flavor = async_trait, #async_options),
+                },
+                quote! {
+                    trait AsyncValue {
+                        async fn async_value(&self) -> u32;
+                    }
+                },
+            )
+        };
+
+        let default = expand_with(quote!());
+        assert!(default.contains(&quote!(#[async_trait::async_trait]).to_string()));
+        assert_eq!(default, expand_with(quote!(send = true)));
+
+        let never = expand_with(quote!(send = false));
+        assert!(never.contains(&quote!(#[async_trait::async_trait(?Send)]).to_string()));
+
+        let conditional = expand_with(quote!(send = cfg(not(target_arch = "wasm32"))));
+        assert!(conditional.contains(
+            &quote!(#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]).to_string()
+        ));
+        assert!(
+            conditional.contains(
+                &quote!(#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))])
+                    .to_string()
+            )
+        );
     }
 }

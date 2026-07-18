@@ -49,7 +49,7 @@
 //! | `types(A => B, ...)` | ✓ | — | type substitutions, token-level, generic-aware; paths may be module-qualified |
 //! | `calls(f => g, ...)` | ✓ | — | call renames (the `.await` lives in the source) |
 //! | `flavor = async_fn \| async_trait` | — | ✓ | async trait/impl emission style |
-//! | `wasm_send` | — | ✓ | with `async_trait`: native `Send` / wasm `?Send` |
+//! | `send = true \| false \| cfg(...)` | — | ✓ | with `async_trait`: `Send`-ness of the emission (default `Send`) |
 //!
 //! Both variants can be feature-gated, either one, or neither. The attribute
 //! is **never wrapped in `cfg_attr`** — it always runs and emits the cfg gates

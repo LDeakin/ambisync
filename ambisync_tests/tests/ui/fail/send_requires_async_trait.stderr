@@ -1,0 +1,5 @@
+error: `async(send = ...)` requires `async(flavor = async_trait)`; native `async fn` infers the future's `Send`-ness from the body
+ --> tests/ui/fail/send_requires_async_trait.rs:1:50
+  |
+1 | #[ambisync::ambisync(sync(name = "value"), async(send = false))]
+  |                                                  ^^^^

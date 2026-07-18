@@ -79,7 +79,7 @@ either, or neither variant is feature-gated.
 | `types(A => B, ...)` | ✓ | — | type substitutions, token-level, generic-aware; paths may be module-qualified (`mod_x::A => mod_y::B`) |
 | `calls(f => g, ...)` | ✓ | — | call renames (the `.await` lives in the source) |
 | `flavor = async_fn \| async_trait` | — | ✓ | async trait/impl emission style |
-| `wasm_send` | — | ✓ | with `async_trait`: native `Send` / wasm `?Send` |
+| `send = true \| false \| cfg(...)` | — | ✓ | with `async_trait`: `Send`-ness of the emission (default `Send`) |
 
 `types` and `calls` are sync-only because they describe how to rewrite the
 async-written source; the async expansion uses it verbatim.
@@ -235,13 +235,28 @@ items and methods for attributes that belong to one variant only.
 
 ## wasm and `Send`
 
-With `async(flavor = async_trait, wasm_send)`, async traits/impls get the
-standard pairing:
+With `async(flavor = async_trait)`, the `send` option sets the `Send`-ness of
+the emitted async traits/impls: `send = true` (the default), `send = false`
+(`?Send`), or `send = cfg(PRED)` — `Send` where the predicate holds, `?Send`
+elsewhere. The standard native-`Send` / wasm-`?Send` pairing is:
+
+```rust
+#[ambisync(
+    sync(name = "Fetch", pattern = "async_{}"),
+    async(flavor = async_trait, send = cfg(not(target_arch = "wasm32"))),
+)]
+```
+
+which emits:
 
 ```rust
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 ```
+
+The predicate is yours, so thread-capable wasm targets (e.g.
+`wasm32-wasip1-threads`) and feature-driven policies
+(`send = cfg(feature = "send")`) need no special support.
 
 For hand-written bounds that must relax on single-threaded wasm, define the
 usual marker traits in your own crate:
