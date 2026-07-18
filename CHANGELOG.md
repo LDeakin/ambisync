@@ -17,4 +17,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Marker macros `alt!`, `sync_only!`, `async_only!` and the `#[sync_only]` /
   `#[async_only]` / `#[sync_attr(...)]` / `#[async_attr(...)]` helper
   attributes for divergent code.
-- `MaybeSend` / `MaybeSync` bounds (equal to `Send`/`Sync` except on `wasm32`).

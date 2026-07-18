@@ -235,15 +235,33 @@ items and methods for attributes that belong to one variant only.
 
 ## wasm and `Send`
 
-The facade exports `MaybeSend`/`MaybeSync` — equal to `Send`/`Sync` except on
-`wasm32`, where they are no-op bounds. With
-`async(flavor = async_trait, wasm_send)`, async traits/impls get the standard
-pairing:
+With `async(flavor = async_trait, wasm_send)`, async traits/impls get the
+standard pairing:
 
 ```rust
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 ```
+
+For hand-written bounds that must relax on single-threaded wasm, define the
+usual marker traits in your own crate:
+
+```rust
+#[cfg(not(target_arch = "wasm32"))]
+pub trait MaybeSend: Send {}
+#[cfg(not(target_arch = "wasm32"))]
+impl<T: Send + ?Sized> MaybeSend for T {}
+
+#[cfg(target_arch = "wasm32")]
+pub trait MaybeSend {}
+#[cfg(target_arch = "wasm32")]
+impl<T: ?Sized> MaybeSend for T {}
+```
+
+`ambisync` deliberately does not export these: in a public bound they would
+make `ambisync` a semver-relevant dependency of your API, and the cfg policy
+should stay yours (e.g. `wasm32-wasip1-threads` has real threads and may want
+a real `Send`).
 
 ## Limitations (by design)
 
@@ -259,8 +277,7 @@ pairing:
 
 ## Workspace layout
 
-- [`ambisync/`](ambisync/) — facade crate: macro re-exports, marker macros,
-  `MaybeSend`/`MaybeSync`.
+- [`ambisync/`](ambisync/) — facade crate: macro re-exports and marker macros.
 - [`ambisync_macros/`](ambisync_macros/) — the proc-macro implementation: one
   `syn::visit_mut`-based rewriter run once per variant over a cloned item.
 - [`ambisync_tests/`](ambisync_tests/) — integration tests with real `async` and

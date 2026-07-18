@@ -261,31 +261,3 @@ macro_rules! async_only {
         )
     };
 }
-
-/// `Send` on every target except `wasm32`, where it is a no-op bound.
-///
-/// Use in async trait bounds that must relax on single-threaded wasm.
-#[cfg(not(target_arch = "wasm32"))]
-pub trait MaybeSend: Send {}
-#[cfg(not(target_arch = "wasm32"))]
-impl<T: Send + ?Sized> MaybeSend for T {}
-
-/// `Send` on every target except `wasm32`, where it is a no-op bound.
-///
-/// Use in async trait bounds that must relax on single-threaded wasm.
-#[cfg(target_arch = "wasm32")]
-pub trait MaybeSend {}
-#[cfg(target_arch = "wasm32")]
-impl<T: ?Sized> MaybeSend for T {}
-
-/// `Sync` on every target except `wasm32`, where it is a no-op bound.
-#[cfg(not(target_arch = "wasm32"))]
-pub trait MaybeSync: Sync {}
-#[cfg(not(target_arch = "wasm32"))]
-impl<T: Sync + ?Sized> MaybeSync for T {}
-
-/// `Sync` on every target except `wasm32`, where it is a no-op bound.
-#[cfg(target_arch = "wasm32")]
-pub trait MaybeSync {}
-#[cfg(target_arch = "wasm32")]
-impl<T: ?Sized> MaybeSync for T {}
