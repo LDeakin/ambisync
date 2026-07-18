@@ -19,5 +19,6 @@ path = "src/lib.rs"
 [dev-dependencies]
 ambisync = { path = "../ambisync" }
 async-trait = "0.1"
+inherent = "1.0.13"
 tokio = { version = "1", features = ["rt", "macros"] }
 trybuild = "1"

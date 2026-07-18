@@ -2,10 +2,11 @@
 
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
+use syn::parse::{Parse, ParseStream};
 use syn::visit_mut::VisitMut;
 use syn::{
-    AttrStyle, Attribute, Fields, Ident, ImplItem, Item, ItemMod, LitStr, Meta, TraitItem,
-    parse_quote,
+    AttrStyle, Attribute, Fields, Ident, ImplItem, ImplItemFn, Item, ItemMod, LitStr, Meta, Token,
+    TraitItem, Visibility, parse_quote,
 };
 
 use crate::config::{Config, Declaration, Flavor, SendPolicy, async_ident};
@@ -314,6 +315,7 @@ fn emit_variant(
                 ));
             }
             passthrough_attrs(&mut item_impl.attrs, variant)?;
+            normalize_signature_only_members(&mut item_impl.items);
             filter_impl_items(&mut item_impl.items, variant);
             for impl_item in &mut item_impl.items {
                 if let ImplItem::Fn(method) = impl_item {
@@ -423,6 +425,10 @@ fn emit_variant(
     }
 
     apply_variant_metadata(&mut item, cfg, variant, is_test)?;
+
+    if let Item::Impl(item_impl) = &mut item {
+        restore_signature_only_members(&mut item_impl.items);
+    }
 
     let gate = if variant.is_sync() {
         &cfg.sync.gate
@@ -624,6 +630,90 @@ fn filter_trait_items(items: &mut Vec<TraitItem>, variant: Variant) {
         };
         keep_for_variant(attrs, variant)
     });
+}
+
+/// A signature-only impl member (`pub async fn f(...);`), which syn parses as
+/// `ImplItem::Verbatim`. Such members are meaningful to attribute macros that accept
+/// body-less methods inside impls (for example the `inherent` crate).
+struct SignatureOnlyFn {
+    attrs: Vec<Attribute>,
+    vis: Visibility,
+    defaultness: Option<Token![default]>,
+    sig: syn::Signature,
+}
+
+impl Parse for SignatureOnlyFn {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let attrs = input.call(Attribute::parse_outer)?;
+        let vis = input.parse()?;
+        let defaultness = input.parse()?;
+        let sig = input.parse()?;
+        input.parse::<Token![;]>()?;
+        Ok(Self {
+            attrs,
+            vis,
+            defaultness,
+            sig,
+        })
+    }
+}
+
+/// The internal marker distinguishing a normalized signature-only member from an ordinary method.
+const SIGNATURE_ONLY_MARKER: &str = "__ambisync_signature_only";
+
+/// Turn each signature-only `ImplItem::Verbatim` member into a temporary `ImplItem::Fn` with an
+/// empty body and an internal marker attribute, so member filtering, renaming, and rewriting
+/// treat it like an ordinary method. [`restore_signature_only_members`] undoes this on emission.
+/// Verbatim members that are not signature-only fns pass through untouched.
+fn normalize_signature_only_members(items: &mut [ImplItem]) {
+    for item in items {
+        let ImplItem::Verbatim(tokens) = item else {
+            continue;
+        };
+        let Ok(member) = syn::parse2::<SignatureOnlyFn>(tokens.clone()) else {
+            continue;
+        };
+        let SignatureOnlyFn {
+            mut attrs,
+            vis,
+            defaultness,
+            sig,
+        } = member;
+        let marker = Ident::new(SIGNATURE_ONLY_MARKER, proc_macro2::Span::call_site());
+        attrs.push(parse_quote!(#[#marker]));
+        *item = ImplItem::Fn(ImplItemFn {
+            attrs,
+            vis,
+            defaultness,
+            sig,
+            block: parse_quote!({}),
+        });
+    }
+}
+
+/// Re-emit normalized signature-only members in their body-less form, dropping the marker.
+fn restore_signature_only_members(items: &mut [ImplItem]) {
+    for item in items {
+        let ImplItem::Fn(method) = item else {
+            continue;
+        };
+        let Some(marker) = method
+            .attrs
+            .iter()
+            .position(|attr| attr.path().is_ident(SIGNATURE_ONLY_MARKER))
+        else {
+            continue;
+        };
+        method.attrs.remove(marker);
+        let ImplItemFn {
+            attrs,
+            vis,
+            defaultness,
+            sig,
+            ..
+        } = &*method;
+        *item = ImplItem::Verbatim(quote!(#(#attrs)* #vis #defaultness #sig;));
+    }
 }
 
 fn filter_impl_items(items: &mut Vec<ImplItem>, variant: Variant) {
@@ -841,6 +931,57 @@ mod tests {
         assert!(out.contains("task : & Task"), "{out}");
         assert!(out.contains("blocking_helper (store)"), "{out}");
         assert!(out.contains("other (task)"), "{out}");
+    }
+
+    #[test]
+    fn signature_only_impl_members_are_rewritten() {
+        // `pub async fn f(...);` members inside impls (syn: `ImplItem::Verbatim`, meaningful to
+        // attribute macros like `inherent`) receive the same filtering, renaming, and rewriting
+        // as ordinary methods, and stay body-less in both expansions.
+        let out = expand(
+            quote! {
+                sync(fns("async_{}"), types(AsyncStore => Store, AsyncReadOps => ReadOps)),
+                async(feature = "async"),
+            },
+            quote! {
+                impl AsyncReadOps for Cached<AsyncStore> {
+                    /// Retrieve via [`AsyncStore`].
+                    #[allow(clippy::missing_errors_doc)]
+                    pub async fn async_retrieve(&self) -> Result<u32, AsyncStore>;
+
+                    pub async unsafe fn async_scary<T: Send>(&self, x: T) -> u32;
+
+                    #[sync_only]
+                    pub async fn async_blocking(&self) -> u32;
+
+                    #[async_only]
+                    pub async fn async_concurrent(&self) -> u32;
+                }
+            },
+        );
+        // Sync expansion: renamed, `async` stripped, types substituted, docs follow, `;` form kept.
+        assert!(
+            out.contains("pub fn retrieve (& self) -> Result < u32 , Store > ;"),
+            "{out}"
+        );
+        assert!(
+            out.contains("pub unsafe fn scary < T : Send > (& self , x : T) -> u32 ;"),
+            "{out}"
+        );
+        assert!(out.contains("[`Store`]"), "{out}");
+        assert!(out.contains("impl ReadOps for Cached < Store >"), "{out}");
+        // Async expansion: kept as written.
+        assert!(
+            out.contains("pub async fn async_retrieve (& self) -> Result < u32 , AsyncStore > ;"),
+            "{out}"
+        );
+        // `#[sync_only]` / `#[async_only]` gate signature-only members like other members.
+        assert!(out.contains("fn blocking (& self)"), "{out}");
+        assert!(!out.contains("fn async_blocking"), "{out}");
+        assert!(out.contains("fn async_concurrent (& self)"), "{out}");
+        assert!(!out.contains("fn concurrent"), "{out}");
+        // No internal marker leaks into the output.
+        assert!(!out.contains("__ambisync_signature_only"), "{out}");
     }
 
     #[test]
