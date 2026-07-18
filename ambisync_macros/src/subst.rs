@@ -236,7 +236,7 @@ impl SubstTable {
         self.pattern_rename_leading_segment(path)
     }
 
-    /// Best-effort rewriting inside macro token streams for the sync expansion: single-ident type substitutions, and call renames recognized as `name ( ... )`.
+    /// Best-effort rewriting inside macro token streams for the sync expansion: single-ident type substitutions, and call renames recognized as `name ( ... )` or turbofish `name :: < ... > ( ... )`.
     pub fn rewrite_macro_tokens(&self, tokens: TokenStream) -> TokenStream {
         let trees: Vec<TokenTree> = tokens.into_iter().collect();
         let mut out: Vec<TokenTree> = Vec::with_capacity(trees.len());
@@ -253,17 +253,10 @@ impl SubstTable {
                 TokenTree::Ident(ident) => {
                     let name = ident.to_string();
                     if let Some(to) = self.lookup_call_str(&name)
-                        && let Some(TokenTree::Group(args)) = trees.get(i + 1)
-                        && args.delimiter() == Delimiter::Parenthesis
+                        && call_follows(&trees, i + 1)
                     {
                         out.push(TokenTree::Ident(Ident::new(&to, ident.span())));
-                        let mut new_args = Group::new(
-                            Delimiter::Parenthesis,
-                            self.rewrite_macro_tokens(args.stream()),
-                        );
-                        new_args.set_span(args.span());
-                        out.push(TokenTree::Group(new_args));
-                        i += 2;
+                        i += 1;
                         continue;
                     }
                     let type_subst = self
@@ -348,6 +341,19 @@ impl SubstTable {
 
 fn is_ident_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
+}
+
+/// Whether the tokens from `i` start a call's argument spelling: `( ... )` directly, or a turbofish `:: < ... > ( ... )`.
+/// Only the `:: <` prefix of a turbofish is checked; the generic arguments and the argument group that must follow are left to the caller's token walk.
+fn call_follows(trees: &[TokenTree], i: usize) -> bool {
+    match trees.get(i) {
+        Some(TokenTree::Group(args)) => args.delimiter() == Delimiter::Parenthesis,
+        Some(TokenTree::Punct(p1)) if p1.as_char() == ':' => {
+            matches!(trees.get(i + 1), Some(TokenTree::Punct(p2)) if p2.as_char() == ':')
+                && matches!(trees.get(i + 2), Some(TokenTree::Punct(p3)) if p3.as_char() == '<')
+        }
+        _ => false,
+    }
 }
 
 /// First matching pattern wins; a rename only applies when the derived name is itself a valid identifier

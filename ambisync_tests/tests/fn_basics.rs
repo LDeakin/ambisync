@@ -137,6 +137,41 @@ async fn async_macro_tokens_verbatim() {
     assert_eq!(async_describe().await, "value=2");
 }
 
+// Call renames inside macro bodies also apply to turbofish spellings (`name::<T>(...)`).
+fn collect_values<T: From<u32>>(store: &Store) -> Vec<T> {
+    vec![store.get().into()]
+}
+async fn async_collect_values<T: From<u32>>(store: &AsyncStore) -> Vec<T> {
+    vec![store.get().await.into()]
+}
+
+#[ambisync(
+    async(feature = "async"),
+    sync(
+        fn_pattern = "async_{}",
+        types(AsyncStore => Store),
+        calls(async_make_store => make_store, async_collect_values => collect_values),
+    ),
+)]
+async fn async_describe_turbofish() -> String {
+    let store: AsyncStore = async_make_store().await;
+    format!(
+        "values={:?}",
+        async_collect_values::<u64>(&store).await
+    )
+}
+
+#[test]
+fn sync_macro_tokens_rewrite_turbofish_calls() {
+    assert_eq!(describe_turbofish(), "values=[1]");
+}
+
+#[cfg(feature = "async")]
+#[tokio::test]
+async fn async_macro_tokens_keep_turbofish_calls() {
+    assert_eq!(async_describe_turbofish().await, "values=[2]");
+}
+
 // Both variants independently feature-gated.
 #[ambisync(
     sync(feature = "sync", fn_pattern = "async_{}"),
