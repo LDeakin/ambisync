@@ -1,5 +1,0 @@
-error: unasync functions must be written in async form
- --> tests/ui/fail/non_async_function.rs:2:1
-  |
-2 | fn async_value() -> u32 {
-  | ^^^^^^^^^^^^^^^^^^^^^^^

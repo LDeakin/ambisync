@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["unasync", "unasync_macros", "unasync_tests"]
+members = ["ambisync", "ambisync_macros", "ambisync_tests"]
 
 [workspace.package]
 version = "0.1.0"
@@ -8,7 +8,7 @@ edition = "2024"
 rust-version = "1.91"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-repository = "https://github.com/LDeakin/unasync"
+repository = "https://github.com/LDeakin/ambisync"
 description = "Write sync/async-generic Rust: author the async form once, derive the sync variant mechanically"
 keywords = ["async", "sync", "macro", "generic"]
 categories = ["asynchronous", "rust-patterns"]

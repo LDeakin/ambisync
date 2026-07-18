@@ -1,5 +1,0 @@
-error: the sync and async variants would both be named `value`; choose a distinct `sync(name = ...)` or `async(name = ...)`
- --> tests/ui/fail/same_name.rs:1:29
-  |
-1 | #[unasync::dual(sync(name = "value"), async(name = "value"))]
-  |                             ^^^^^^^

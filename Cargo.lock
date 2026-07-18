@@ -3,6 +3,32 @@
 version = 4
 
 [[package]]
+name = "ambisync"
+version = "0.1.0"
+dependencies = [
+ "ambisync_macros",
+]
+
+[[package]]
+name = "ambisync_macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "ambisync_tests"
+version = "0.1.0"
+dependencies = [
+ "ambisync",
+ "async-trait",
+ "tokio",
+ "trybuild",
+]
+
+[[package]]
 name = "async-trait"
 version = "0.1.89"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -227,32 +253,6 @@ dependencies = [
  "target-triple",
  "termcolor",
  "toml",
-]
-
-[[package]]
-name = "unasync"
-version = "0.1.0"
-dependencies = [
- "unasync_macros",
-]
-
-[[package]]
-name = "unasync_macros"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "unasync_tests"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "tokio",
- "trybuild",
- "unasync",
 ]
 
 [[package]]

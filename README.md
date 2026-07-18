@@ -1,15 +1,15 @@
-# unasync
+# ambisync
 
-Write the async form once; `#[unasync::dual]` derives the sync variant
+Write the async form once; `#[ambisync::dual]` derives the sync variant
 mechanically.
 
 Libraries that ship both sync and async APIs maintain parallel code paths that
 are identical except for `.await` points, item names (e.g. `read` / `async_read`,
-`Store` / `AsyncStore`), test attributes, and feature gates. `unasync`
+`Store` / `AsyncStore`), test attributes, and feature gates. `ambisync`
 collapses each such pair into a single async-written item:
 
 ```rust
-#[unasync::dual(
+#[ambisync::dual(
     sync(name = "read", types(AsyncStore => Store)),
     async(feature = "async"),
 )]
@@ -102,13 +102,13 @@ For the minority of code that genuinely differs between variants, use the
 marker macros:
 
 ```rust
-let workers = unasync::alt!(
+let workers = ambisync::alt!(
     sync  => rayon::current_num_threads(),
     async => options.concurrency(),
 );
 
-unasync::sync_only! { items.into_par_iter().try_for_each(process)?; }
-unasync::async_only! {
+ambisync::sync_only! { items.into_par_iter().try_for_each(process)?; }
+ambisync::async_only! {
     stream::iter(items).map(process).buffer_unordered(n).try_collect().await?;
 }
 ```
@@ -121,7 +121,7 @@ Struct fields, enum variants, and trait/impl members can be kept in only one
 expansion with `#[sync_only]` / `#[async_only]`:
 
 ```rust
-#[unasync::dual(sync(name = "Options"), async(feature = "async"))]
+#[ambisync::dual(sync(name = "Options"), async(feature = "async"))]
 pub struct AsyncOptions {
     pub common: u32,
     #[sync_only]
@@ -130,7 +130,7 @@ pub struct AsyncOptions {
     pub concurrency: usize,  // only on `AsyncOptions`
 }
 
-#[unasync::dual(sync(name = "Mode"), async(feature = "async"))]
+#[ambisync::dual(sync(name = "Mode"), async(feature = "async"))]
 pub enum AsyncMode {
     Shared,
     #[sync_only]
@@ -139,7 +139,7 @@ pub enum AsyncMode {
     Concurrent { concurrency: usize }, // only on `AsyncMode`
 }
 
-#[unasync::dual(
+#[ambisync::dual(
     sync(name = "Fetch", pattern = "async_{}"),
     async(feature = "async"),
 )]
@@ -154,11 +154,11 @@ pub trait AsyncFetch {
 
 ## Tests
 
-`#[unasync::test]` emits a sync `#[test]` plus an async test from one
+`#[ambisync::test]` emits a sync `#[test]` plus an async test from one
 async-written test fn:
 
 ```rust
-#[unasync::test(
+#[ambisync::test(
     sync(name = "roundtrip", calls(async_fixture => fixture)),
     async(feature = "async", test_attr = #[tokio::test]),
 )]
@@ -177,7 +177,7 @@ the macro attaches the rewritten shared contents (a function's body, a
 trait/impl's members, a struct's fields, an enum's variants):
 
 ```rust
-#[unasync::dual(
+#[ambisync::dual(
     sync(declaration {
         /// Read using blocking I/O.
         #[must_use]
@@ -202,7 +202,7 @@ Recurring configuration (patterns, type tables, gates) can be stated once for
 a module:
 
 ```rust
-#[unasync::scope(
+#[ambisync::scope(
     sync(pattern = "async_{}", types(AsyncStore => Store)),
     async(feature = "async"),
 )]
@@ -210,13 +210,13 @@ mod ops {
     #[dual]
     async fn async_get(store: &AsyncStore, key: &str) -> Option<Vec<u8>> { ... }
 
-    #[unasync::test]
+    #[ambisync::test]
     async fn async_roundtrip() { ... }
 }
 ```
 
 `scope` requires an inline module; for file modules (`mod foo;`) use
-`unasync::content! { #![defaults(...)] ... }` inside the file. Item-level
+`ambisync::content! { #![defaults(...)] ... }` inside the file. Item-level
 options override the defaults; substitution tables concatenate, with item
 entries taking precedence.
 
@@ -257,11 +257,11 @@ pairing:
 
 ## Workspace layout
 
-- [`unasync/`](unasync/) — facade crate: macro re-exports, marker macros,
+- [`ambisync/`](ambisync/) — facade crate: macro re-exports, marker macros,
   `MaybeSend`/`MaybeSync`.
-- [`unasync_macros/`](unasync_macros/) — the proc-macro implementation: one
+- [`ambisync_macros/`](ambisync_macros/) — the proc-macro implementation: one
   `syn::visit_mut`-based rewriter run once per variant over a cloned item.
-- [`unasync_tests/`](unasync_tests/) — integration tests with real `async` and
+- [`ambisync_tests/`](ambisync_tests/) — integration tests with real `async` and
   `sync` features, exercising the emitted cfg gates under every feature
   combination.
 
