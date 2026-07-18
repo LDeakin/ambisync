@@ -1,12 +1,12 @@
 //! Write the async form once; [`macro@ambisync`] derives the sync variant mechanically.
 //!
-//! The annotated item is written in **async form** — async types, async bodies, `.await` — so the source is real, compilable async code.
+//! The annotated item is written in **async form** with async types, async bodies, and `.await`.
 //! `#[ambisync]` emits two items:
 //!
 //! - the **async variant**: the source as written;
 //! - the **sync variant**: `async` removed, every `.await` stripped (`async { ... }` blocks become immediately invoked closures), and names, types, and calls mapped through the `sync(...)` options.
 //!
-//! Naming is **always explicit** — no `async_` prefix or other convention is assumed.
+//! Function and type naming is **always explicit**.
 //! Give an exact sync name, or use `sync(fn_pattern = "async_{}")` / `sync(type_pattern = "Async{}")` where one convention covers methods or multiple scoped items; the `{}` capture is the sync name.
 //! The arrow form maps the `{}` stem into a different sync spelling instead: `fn_pattern = "async_{} => sync_{}"` maps `async_read` to `sync_read` (the short form is sugar for `"... => {}"`).
 //!
@@ -45,7 +45,6 @@
 //! | `send = true \| false \| cfg(...)` | — | ✓ | with `async_trait`: `Send`-ness of the emission (default `Send`) |
 //!
 //! Both variants can be feature-gated, either one, or neither.
-//! The attribute is **never wrapped in `cfg_attr`** — it always runs and emits the cfg gates itself, so the expansion stays correct under every feature combination.
 //!
 //! # Explicit declarations
 //!
@@ -158,7 +157,7 @@
 //! # Docs
 //!
 //! Both variants keep the source doc comments.
-//! Doc text receives the same token-level substitutions as code — `types(...)`, `calls(...)`, and item renames, matched at identifier boundaries — so intra-doc links and prose follow each variant's names (`` [`AsyncStore`] `` → `` [`Store`] ``).
+//! Doc text receives the same token-level substitutions as code.
 //! Append variant-specific paragraphs with `sync(doc = "...")` / `async(doc = "...")`.
 //!
 //! # Tests

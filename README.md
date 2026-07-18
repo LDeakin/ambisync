@@ -37,9 +37,9 @@ Write the annotated item in async form, using async types, async bodies, and `.a
 The source is therefore real, compilable async code that rust-analyzer and rustfmt understand.
 `#[ambisync]` clones the item and runs a syntactic rewriter once per variant:
 
-- **async variant** — the source as written.
+- **async variant**: the source as written.
   Helper attributes are removed and markers are resolved.
-- **sync variant** — derived mechanically:
+- **sync variant**: derived mechanically:
   - `async fn` → `fn`, and every `.await` is stripped.
   - `async { ... }` / `async move { ... }` blocks become immediately invoked closures.
     The transformation preserves the block's `return`/`?` boundary and `move` captures.
@@ -83,14 +83,14 @@ The attribute always runs and emits the `#[cfg(feature = ...)]` gates itself —
 
 `#[ambisync]` applies to `fn`, `trait`, `impl` (inherent and trait impls), `struct`, and `enum`.
 
-- **Traits** — Rename the trait via `name`/`type_pattern` and methods via `fn_pattern`.
+- **Traits**: Rename the trait via `name`/`type_pattern` and methods via `fn_pattern`.
   Default bodies follow the renames.
   The async trait gets `#[allow(async_fn_in_trait)]`, or you can use `async(flavor = async_trait)`.
-- **Impls** — Rewrite the self type and trait path via `types(...)`.
+- **Impls**: Rewrite the self type and trait path via `types(...)`.
   Rename methods via `fn_pattern`.
   Calls between renamed methods follow automatically.
   The identity pattern `"{}"` keeps method names unchanged when the sync and async types already provide separate namespaces.
-- **Structs / enums** — The type is renamed and field types are substituted.
+- **Structs / Enums**: The type is renamed and field types are substituted.
 
 ## Divergent code
 
@@ -259,18 +259,16 @@ impl<T: ?Sized> MaybeSend for T {}
 
 ## Limitations
 
-- **Syntactic matching only.** Substitutions match paths and types token-for-token — no name resolution, no type inference.
-Aliased spellings must be added to the table.
+- **Syntactic matching only.** Substitutions match paths and types token-for-token
+  - There is no name resolution or type inference, so aliased spellings must be added to the table.
 - **Macro bodies are rewritten best-effort** in the sync expansion: `.await` stripping, single-ident type substitutions, and `name(...)` call renames.
-Anything fancier inside `format!`-likes needs `alt!`.
-- **Whole-item expansion.** `#[ambisync]` always yields both variants of the whole item — no partial extraction.
-The escape hatch is writing the two items by hand; the macro is never mandatory.
+  - Anything fancier inside `format!`-likes needs `alt!`.
 
 ## Workspace layout
 
-- [`ambisync/`](ambisync/) — facade crate: macro re-exports and marker macros.
-- [`ambisync_macros/`](ambisync_macros/) — the proc-macro implementation: one `syn::visit_mut`-based rewriter run once per variant over a cloned item.
-- [`ambisync_tests/`](ambisync_tests/) — integration tests with real `async` and `sync` features, exercising the emitted cfg gates under every feature combination.
+- [`ambisync/`](ambisync/): facade crate: macro re-exports and marker macros.
+- [`ambisync_macros/`](ambisync_macros/): the proc-macro implementation: one `syn::visit_mut`-based rewriter run once per variant over a cloned item.
+- [`ambisync_tests/`](ambisync_tests/): integration tests with real `async` and `sync` features, exercising the emitted cfg gates under every feature combination.
 
 License: MIT OR Apache-2.0.
 MSRV: 1.91.
