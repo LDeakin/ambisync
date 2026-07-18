@@ -32,10 +32,10 @@ pub struct SubstTable {
 impl SubstTable {
     pub fn build(cfg: &Config) -> Self {
         let mut table = SubstTable::default();
-        for entry in &cfg.types {
+        for entry in &cfg.sync.types {
             table.register_type(&entry.async_, &entry.sync, false);
         }
-        for swap in &cfg.calls {
+        for swap in &cfg.sync.calls {
             table
                 .calls
                 .push((swap.async_.to_string(), swap.sync.clone()));
@@ -107,7 +107,7 @@ impl SubstTable {
     /// Register an automatic method rename (from renaming the methods of a
     /// dual trait/impl) so that calls in bodies follow the rename.
     pub fn add_auto_call(&mut self, from: &Ident, to: &Ident) {
-        // User-provided `calls(...)` entries were added first and win.
+        // User-provided `sync(calls(...))` entries were added first and win.
         self.calls.push((from.to_string(), to.clone()));
     }
 

@@ -1,0 +1,8 @@
+error: a function declaration shell must have an empty body
+ --> tests/ui/fail/nonempty_function_declaration.rs:3:27
+  |
+3 |           fn value() -> u32 {
+  |  ___________________________^
+4 | |             1
+5 | |         }
+  | |_________^

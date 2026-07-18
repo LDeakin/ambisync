@@ -17,9 +17,10 @@ mod subst;
 /// The item is written in *async form* (async types, async bodies, `.await`);
 /// the async variant is emitted with its configured output name, and the sync variant is
 /// derived by stripping `async`/`.await`, selecting its configured exact name
-/// or applying the sync naming patterns, and applying the `types(...)`/
-/// `calls(...)` substitution tables. See the `unasync` crate documentation for
-/// the full option list.
+/// or applying the sync naming patterns, and applying the `sync(types(...))`/
+/// `sync(calls(...))` substitution tables. Any supported item variant may
+/// instead provide a complete empty `declaration { item shell }`. See the
+/// `unasync` crate documentation for the full option list.
 #[proc_macro_attribute]
 pub fn dual(args: TokenStream, input: TokenStream) -> TokenStream {
     expand::dual(args.into(), input.into())
@@ -28,7 +29,8 @@ pub fn dual(args: TokenStream, input: TokenStream) -> TokenStream {
 }
 
 /// Emit a sync `#[test]` and a cfg-gated async test (default `#[tokio::test]`,
-/// override with `async(test_attr = #[...])`) from one async-written test fn.
+/// override either variant with `sync(test_attr = #[...])` /
+/// `async(test_attr = #[...])`) from one async-written test fn.
 #[proc_macro_attribute]
 pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
     expand::test(args.into(), input.into())

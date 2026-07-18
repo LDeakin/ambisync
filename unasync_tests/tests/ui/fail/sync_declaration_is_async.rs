@@ -1,0 +1,11 @@
+#[unasync::dual(
+    sync(declaration {
+        async fn value() -> u32;
+    }),
+    async(name = "async_value"),
+)]
+async fn source() -> u32 {
+    1
+}
+
+fn main() {}

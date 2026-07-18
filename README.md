@@ -21,12 +21,12 @@ understands. Its identifier normally uses the async spelling too; exact
 source identifier when useful. `#[unasync::dual]` emits:
 
 - the **async variant**: the source as written (helper attributes removed,
-  markers resolved, and an optional exact output name applied), optionally
-  gated with `async(feature = "...")`;
+  markers resolved, and an optional exact output name or declaration applied),
+  optionally gated with `async(feature = "...")`;
 - the **sync variant**: `async` removed, every `.await` stripped, names mapped
   through `sync(name = "...")` or the explicit naming patterns and the
-  `types(...)`/`calls(...)` substitution tables, optionally gated with
-  `sync(feature = "...")`.
+  `sync(types(...))`/`sync(calls(...))` substitution tables, optionally gated
+  with `sync(feature = "...")`.
 
 In the sync expansion, an `async { ... }` / `async move { ... }` block becomes
 an immediately invoked sync closure. This preserves the block's local
@@ -46,9 +46,11 @@ combination (both, either, or neither variant gated).
 
 ```rust
 #[unasync::dual(
-    sync(name = "partial_decode"),
+    sync(
+        name = "partial_decode",
+        types(&Arc<dyn AsyncBytesPartialDecoderTraits> => &Arc<dyn BytesPartialDecoderTraits>),
+    ),
     async(feature = "async"),
-    types(&Arc<dyn AsyncBytesPartialDecoderTraits> => &Arc<dyn BytesPartialDecoderTraits>),
 )]
 async fn async_partial_decode<'a>(
     input_handle: &Arc<dyn AsyncBytesPartialDecoderTraits>,
@@ -71,9 +73,10 @@ async fn async_partial_decode<'a>(
 - **Traits**: the sync trait uses an exact name or `type_pattern`; async methods
   use `pattern`, and default bodies follow those names automatically;
   `#[allow(async_fn_in_trait)]` is added to the async trait.
-- **Impls**: the self type and trait path are rewritten via the `types(...)`
-  table (add `types(AsyncClient => Client, AsyncTrait => Trait)`); `async fn`
-  methods are renamed and calls between them are followed automatically.
+- **Impls**: the self type and trait path are rewritten via the
+  `sync(types(...))` table (add
+  `sync(types(AsyncClient => Client, AsyncTrait => Trait))`); `async fn` methods
+  are renamed and calls between them are followed automatically.
 - **Structs/enums**: the type is renamed and field types are substituted.
 
 ## Options
@@ -83,11 +86,12 @@ async fn async_partial_decode<'a>(
 | `sync(feature = "sync", name = "read")` | configure the sync feature gate and exact item name |
 | `sync(pattern = "async_{}")` | derive sync fn/method names; `{}` captures the sync name |
 | `sync(type_pattern = "Async{}")` | derive sync type/trait names |
+| `sync(types(A => B, ...))` | async spelling → sync spelling, token-level, generic-aware |
+| `sync(calls(f => g, ...))` | async call name → sync call name (`.await` lives in the source) |
 | `async(feature = "async", name = "async_read")` | configure the async feature gate and optional exact item name |
-| `types(A => B, ...)` | async spelling → sync spelling, token-level, generic-aware |
-| `calls(f => g, ...)` | async call name → sync call name (`.await` lives in the source) |
-| `async(doc = "...")` | extra doc text on the async item |
-| `async(test_attr = #[...])` | runtime attribute for `#[unasync::test]` (default `#[tokio::test]`) |
+| `sync(doc = "...", attr = #[...])` / `async(...)` | append variant-specific docs and repeatable item attributes |
+| `sync(test_attr = #[...])` / `async(...)` | runtime attributes for `#[unasync::test]` (defaults: `#[test]` / `#[tokio::test]`) |
+| `sync(declaration { item shell })` / `async(...)` | supply the complete outer declaration for that variant |
 | `async(flavor = async_fn \| async_trait)` | async trait/impl emission style |
 | `async(wasm_send)` | with `async_trait`: native `Send` / wasm `?Send` cfg pairing |
 
@@ -100,14 +104,126 @@ intentionally not a scope default and cannot name an `impl` block. Use
 pattern `"{}"` keeps method names the same when the surrounding sync and async
 types already provide separate namespaces.
 
-## Divergent bodies
+`doc`, `attr`, and `test_attr` are symmetric because either API may need
+variant-specific documentation or ordinary Rust attributes. `types` and
+`calls` live under `sync(...)` because they are directional transformations of
+the async-written source; the async expansion does not use them.
 
-For the minority of code that genuinely differs between the variants:
+## Explicit declarations
+
+Every item kind supported by `dual`—functions, traits, impls, structs, and
+enums—can provide a complete declaration for either variant. Write an ordinary
+Rust item with an empty body as the shell. The shell supplies the docs,
+attributes, visibility, name, generics, bounds, and other header details; the
+macro attaches the rewritten shared contents:
+
+| Annotated item | Contents attached to the declaration shell |
+|---|---|
+| function / test | implementation block |
+| trait / impl | members and their bodies |
+| struct | fields |
+| enum | variants and their fields |
+
+For example, a function can define its complete blocking signature while the
+async function remains ordinary Rust:
 
 ```rust
-let pd = unasync::alt!(
-    sync  => codec.partial_decoder(input, shape, opts)?,
-    async => codec.async_partial_decoder(input, shape, opts).await?,
+#[unasync::dual(
+    sync(
+        feature = "sync",
+        declaration {
+            /// Decode using blocking I/O.
+            #[must_use]
+            pub fn partial_decode<'a>(
+                input: &Arc<dyn BytesPartialDecoderTraits>,
+                options: &CodecOptions,
+            ) -> Result<ArrayBytes<'a>, CodecError> {}
+        },
+        calls(async_partial_decoder => partial_decoder),
+    ),
+    async(feature = "async"),
+)]
+/// Decode using asynchronous I/O.
+#[must_use]
+pub async fn async_partial_decode<'a>(
+    input: &Arc<dyn AsyncBytesPartialDecoderTraits>,
+    options: &CodecOptions,
+) -> Result<ArrayBytes<'a>, CodecError> {
+    let decoder = input.async_partial_decoder(options).await?;
+    // One async-written implementation body.
+    // ...
+}
+```
+
+A struct shell controls its full outer declaration while its fields remain
+shared:
+
+```rust
+#[unasync::dual(
+    sync(declaration {
+        /// Blocking client.
+        #[derive(Clone)]
+        pub struct Client<T>
+        where
+            T: Storage,
+        {}
+    }),
+    async(feature = "async"),
+)]
+pub struct AsyncClient<T> {
+    pub storage: T,
+}
+```
+
+Trait and impl shells use normal empty bodies
+(`pub trait Read: Send {}` / `impl Read for Client {}`), and enum shells use an
+empty variant list (`pub enum Mode {}`). Function declarations also retain the
+compact body-less `fn name(...);` form.
+
+The shared contents are rewritten first and then attached to the explicit
+declaration. The declaration's header is not passed through
+`sync(types(...))` or other rewriting: it is exactly the Rust the user wrote.
+When only `sync(declaration { ... })` is present, the original async item keeps
+its own docs, attributes, visibility, and header. Both declarations may be
+supplied when both public surfaces need complete control.
+
+The ordinary Rust compiler remains the compatibility check: each declaration
+must provide the generics and bindings used by the shared contents, and its
+types must support the operations in that variant's rewritten bodies.
+
+`declaration` owns that variant's item name, docs, and item attributes, so
+it cannot be combined with `name`, `doc`, or `attr` for the same variant.
+Feature gates, test attributes, and required async-trait attributes still
+apply. Declaration bodies must be empty because members, fields, variants, and
+implementation bodies always come from the annotated source item.
+
+## Divergent bodies
+
+A call that differs only by name does **not** need `alt!`. Add it to
+`sync(calls(...))`; the sync rewriter renames the call and strips its `.await`:
+
+```rust
+#[unasync::dual(
+    sync(
+        name = "partial_decode",
+        calls(async_partial_decoder => partial_decoder),
+    ),
+)]
+async fn async_partial_decode(...) {
+    let pd = codec
+        .async_partial_decoder(input, shape, opts)
+        .await?;
+    // sync: codec.partial_decoder(input, shape, opts)?
+}
+```
+
+Use the marker macros for the minority of code whose expression or algorithm
+genuinely differs between variants:
+
+```rust
+let worker_count = unasync::alt!(
+    sync  => rayon::current_num_threads(),
+    async => options.concurrency(),
 );
 
 unasync::sync_only! { chunks.into_par_iter().try_for_each(process)?; }
@@ -149,13 +265,15 @@ pub enum AsyncMode {
 
 ```rust
 #[unasync::test(
-    sync(name = "roundtrip"),
+    sync(
+        name = "roundtrip",
+        types(AsyncObjectStore<InMemory> => MemoryStore),
+        calls(async_fixture => fixture),
+    ),
     async(
         feature = "async",
         test_attr = #[tokio::test], // or #[async_std::test], #[wasm_bindgen_test], ...
     ),
-    types(AsyncObjectStore<InMemory> => MemoryStore),
-    calls(async_fixture => fixture),
 )]
 async fn async_roundtrip() {
     let array = async_fixture().await;
@@ -173,9 +291,8 @@ Proc macros cannot share state across invocations, so recurring configuration
 
 ```rust
 #[unasync::scope(
-    sync(pattern = "async_{}"),
+    sync(pattern = "async_{}", types(AsyncStore => Store)),
     async(feature = "async"),
-    types(AsyncStore => Store),
 )]
 mod ops {
     #[dual]
@@ -191,9 +308,8 @@ or, for code not wrapped in an inline module (including `mod foo;` files):
 ```rust
 unasync::content! {
     #![defaults(
-        sync(pattern = "async_{}"),
+        sync(pattern = "async_{}", types(AsyncStore => Store)),
         async(feature = "async"),
-        types(AsyncStore => Store),
     )]
 
     #[dual]
@@ -210,8 +326,9 @@ item entries taking precedence.
   the matching variant only.
 - The derived sync variant keeps the doc comments verbatim (it is the
   conventional "primary" API); the async variant gets
-  ``/// Async variant of [`sync_name`].`` (extendable with `async(doc = "...")`), so
-  doctests run once, on the sync item.
+  ``/// Async variant of [`sync_name`].`` (extendable with
+  `async(doc = "...")`), so doctests run once, on the sync item. An explicit
+  declaration instead supplies that variant's complete documentation.
 
 ## wasm and `Send`
 

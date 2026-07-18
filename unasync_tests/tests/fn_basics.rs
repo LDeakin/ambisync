@@ -1,7 +1,7 @@
 //! `#[unasync::dual]` on free functions: the source is written entirely in
 //! async form (async names, async types, `.await`); the sync variant is
-//! derived. Covers renaming, gating, `types(...)`, `calls(...)`, markers, and
-//! macro-token rewriting.
+//! derived. Covers renaming, gating, `sync(types(...))`, `sync(calls(...))`,
+//! markers, declarations, and macro-token rewriting.
 
 #![allow(dead_code)]
 
@@ -34,9 +34,11 @@ async fn async_make_store() -> AsyncStore {
 
 #[dual(
     async(feature = "async"),
-    sync(pattern = "async_{}"),
-    types(AsyncStore => Store),
-    calls(async_make_store => make_store),
+    sync(
+        pattern = "async_{}",
+        types(AsyncStore => Store),
+        calls(async_make_store => make_store),
+    ),
 )]
 async fn async_read_value() -> u32 {
     let store: AsyncStore = async_make_store().await;
@@ -68,9 +70,8 @@ impl AsyncStore {
 }
 
 #[dual(
-    sync(pattern = "async_{}"),
+    sync(pattern = "async_{}", types(AsyncStore => Store)),
     async(feature = "async"),
-    types(AsyncStore => Store),
 )]
 async fn async_build_and_read() -> u32 {
     let a = AsyncStore::build();
@@ -120,9 +121,11 @@ async fn async_markers_resolve() {
 // variant keeps macro bodies verbatim.
 #[dual(
     async(feature = "async"),
-    sync(pattern = "async_{}"),
-    types(AsyncStore => Store),
-    calls(async_make_store => make_store),
+    sync(
+        pattern = "async_{}",
+        types(AsyncStore => Store),
+        calls(async_make_store => make_store),
+    ),
 )]
 async fn async_describe() -> String {
     format!("value={}", async_make_store().await.get().await)
@@ -193,9 +196,11 @@ impl AsyncDecode for Dec {
 
 #[dual(
     async(feature = "async"),
-    sync(pattern = "async_{}"),
-    types(&Arc<dyn AsyncDecode> => &Arc<dyn Decode>),
-    calls(async_make_store => make_store),
+    sync(
+        pattern = "async_{}",
+        types(&Arc<dyn AsyncDecode> => &Arc<dyn Decode>),
+        calls(async_make_store => make_store),
+    ),
 )]
 async fn async_partial_decode(input_handle: &Arc<dyn AsyncDecode>, offset: u32) -> u32 {
     let store = async_make_store().await;
@@ -270,6 +275,141 @@ async fn internal_neutral_name() -> u32 {
 #[test]
 fn exact_sync_name_is_used() {
     assert_eq!(explicit_sync_name(), 12);
+}
+
+// Variant docs and arbitrary item attributes are symmetric.
+#[dual(
+    sync(
+        name = "metadata_sync",
+        doc = "Blocking-specific details.",
+        attr = #[inline],
+        attr = #[allow(clippy::let_and_return)],
+    ),
+    async(
+        feature = "async",
+        name = "metadata_async",
+        doc = "Async-specific details.",
+        attr = #[inline],
+    ),
+)]
+async fn internal_metadata() -> u32 {
+    13
+}
+
+#[test]
+fn sync_metadata_options_compile() {
+    assert_eq!(metadata_sync(), 13);
+}
+
+#[cfg(feature = "async")]
+#[tokio::test]
+async fn async_metadata_options_compile() {
+    assert_eq!(metadata_async().await, 13);
+}
+
+pub struct DeclaredSyncInput(u32);
+pub struct DeclaredAsyncInput(u32);
+pub struct RewrittenDeclaredSyncInput;
+
+impl DeclaredSyncInput {
+    fn value(&self) -> u32 {
+        self.0
+    }
+}
+
+impl DeclaredAsyncInput {
+    async fn value(&self) -> u32 {
+        self.0
+    }
+}
+
+// A declaration replaces the derived signature after the body is rewritten.
+// In particular, its `DeclaredSyncInput` type must not be passed through the
+// substitution machinery.
+#[dual(
+    sync(declaration {
+        /// Complete blocking declaration.
+        #[must_use]
+        pub fn declared_sync<F>(input: &DeclaredSyncInput, transform: F) -> u32
+        where
+            F: FnOnce(u32) -> u32;
+        },
+        types(DeclaredSyncInput => RewrittenDeclaredSyncInput),
+    ),
+    async(feature = "async"),
+)]
+async fn async_declared<F>(input: &DeclaredAsyncInput, transform: F) -> u32
+where
+    F: FnOnce(u32) -> u32,
+{
+    transform(input.value().await)
+}
+
+#[test]
+fn sync_declaration_supplies_the_complete_signature() {
+    assert_eq!(declared_sync(&DeclaredSyncInput(21), |value| value + 1), 22);
+}
+
+#[cfg(feature = "async")]
+#[tokio::test]
+async fn source_supplies_the_async_signature() {
+    assert_eq!(
+        async_declared(&DeclaredAsyncInput(22), |value| value + 1).await,
+        23
+    );
+}
+
+// Both output signatures can be explicit while the shared implementation
+// keeps an internal source name.
+#[dual(
+    sync(declaration {
+        pub fn both_declared_sync(input: &DeclaredSyncInput) -> u32;
+    }),
+    async(
+        feature = "async",
+        declaration {
+            /// Complete async declaration.
+            #[must_use]
+            pub async fn both_declared_async(input: &DeclaredAsyncInput) -> u32;
+        },
+    ),
+)]
+async fn internal_both_declared(input: &DeclaredAsyncInput) -> u32 {
+    input.value().await
+}
+
+#[test]
+fn both_declarations_supply_output_signatures() {
+    assert_eq!(both_declared_sync(&DeclaredSyncInput(31)), 31);
+}
+
+#[cfg(feature = "async")]
+#[tokio::test]
+async fn explicit_async_declaration_is_used() {
+    assert_eq!(both_declared_async(&DeclaredAsyncInput(32)).await, 32);
+}
+
+// Functions also accept an ordinary empty-body item shell in addition to the
+// compact body-less declaration form.
+#[dual(
+    sync(declaration {
+        pub fn braced_declared_sync(input: &DeclaredSyncInput) -> u32 {}
+    }),
+    async(feature = "async"),
+)]
+async fn async_braced_declared(input: &DeclaredAsyncInput) -> u32 {
+    input.value().await
+}
+
+#[test]
+fn braced_function_declaration_receives_the_shared_body() {
+    assert_eq!(braced_declared_sync(&DeclaredSyncInput(41)), 41);
+}
+
+#[cfg(feature = "async")]
+#[tokio::test]
+async fn braced_function_declaration_keeps_async_source() {
+    assert_eq!(async_braced_declared(&DeclaredAsyncInput(42)).await, 42);
 }
 
 #[cfg(feature = "async")]

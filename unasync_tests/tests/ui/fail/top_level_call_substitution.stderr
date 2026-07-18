@@ -1,0 +1,5 @@
+error: `calls(...)` is sync-specific; move it inside `sync(calls(...))`
+  --> tests/ui/fail/top_level_call_substitution.rs:12:5
+   |
+12 |     calls(async_value => value),
+   |     ^^^^^

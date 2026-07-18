@@ -23,8 +23,11 @@ impl AsyncConn {
 
 #[dual(
     async(feature = "async"),
-    sync(pattern = "async_{}", type_pattern = "Async{}"),
-    types(AsyncConn => Conn),
+    sync(
+        pattern = "async_{}",
+        type_pattern = "Async{}",
+        types(AsyncConn => Conn),
+    ),
 )]
 pub trait AsyncFetch {
     fn conn(&self) -> &AsyncConn;
@@ -48,8 +51,10 @@ pub struct AsyncClient {
 
 #[dual(
     async(feature = "async"),
-    sync(pattern = "async_{}"),
-    types(AsyncFetch => Fetch, AsyncClient => Client, AsyncConn => Conn),
+    sync(
+        pattern = "async_{}",
+        types(AsyncFetch => Fetch, AsyncClient => Client, AsyncConn => Conn),
+    ),
 )]
 impl AsyncFetch for AsyncClient {
     fn conn(&self) -> &AsyncConn {
@@ -84,9 +89,8 @@ pub trait AsyncValue {
 pub struct Fixed;
 
 #[dual(
-    sync(pattern = "async_{}"),
+    sync(pattern = "async_{}", types(AsyncValue => Value)),
     async(feature = "async", flavor = async_trait),
-    types(AsyncValue => Value),
 )]
 impl AsyncValue for Fixed {
     async fn async_value(&self) -> u32 {
@@ -121,12 +125,14 @@ pub trait AsyncGenericTake<T> {
 }
 
 #[dual(
-    sync(pattern = "async_{}"),
-    async(feature = "async"),
-    types(
-        AsyncGenericTake<T> => GenericTake<T>,
-        AsyncGenericHolder<T> => GenericHolder<T>,
+    sync(
+        pattern = "async_{}",
+        types(
+            AsyncGenericTake<T> => GenericTake<T>,
+            AsyncGenericHolder<T> => GenericHolder<T>,
+        ),
     ),
+    async(feature = "async"),
 )]
 impl<T: Copy> AsyncGenericTake<T> for AsyncGenericHolder<T> {
     async fn async_take(&self) -> T {

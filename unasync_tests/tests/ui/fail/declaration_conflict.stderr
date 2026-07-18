@@ -1,0 +1,5 @@
+error: `sync(declaration { ... })` owns the item name, docs and item attributes, so it cannot be combined with `sync(name = ...)`
+ --> tests/ui/fail/declaration_conflict.rs:5:13
+  |
+5 |             fn other_value() -> u32;
+  |             ^^

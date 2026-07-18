@@ -7,11 +7,12 @@
 //! names may be configured. The [`macro@dual`] attribute then emits:
 //!
 //! - the **async variant**: the source as written (helper attributes removed,
-//!   markers resolved), optionally gated with `async(feature = "...")`;
+//!   markers resolved, and an optional declaration applied), optionally gated
+//!   with `async(feature = "...")`;
 //! - the **sync variant**: `async` removed, every `.await` stripped, names
 //!   selected by `sync(name = "...")` or the scoped naming patterns, and the
-//!   `types(...)`/`calls(...)` substitutions applied, optionally gated with
-//!   `sync(feature = "...")`.
+//!   `sync(types(...))`/`sync(calls(...))` substitutions applied, optionally
+//!   gated with `sync(feature = "...")`.
 //!
 //! Naming is **always explicit** — `unasync` does not assume an `async_`
 //! prefix or any other convention. Give an exact sync item name, or use
@@ -24,7 +25,7 @@
 //! impl Store { fn get(&self) -> u32 { self.0 } }
 //! impl AsyncStore { async fn get(&self) -> u32 { self.0 } }
 //!
-//! #[unasync::dual(sync(name = "read"), types(AsyncStore => Store))]
+//! #[unasync::dual(sync(name = "read", types(AsyncStore => Store)))]
 //! async fn async_read(store: &AsyncStore) -> u32 {
 //!     store.get().await
 //! }
@@ -41,17 +42,45 @@
 //! | `sync(feature = "sync", name = "read")` | configure the sync gate and exact item name |
 //! | `sync(pattern = "async_{}")` | derive sync fn/method names; `{}` captures the sync name |
 //! | `sync(type_pattern = "Async{}")` | derive sync type/trait names |
+//! | `sync(types(A => B, ...))` | async spelling → sync spelling type substitutions |
+//! | `sync(calls(f => g, ...))` | async call name → sync call name (the `.await` is written in the source) |
 //! | `async(feature = "async", name = "async_read")` | configure the async gate and optional exact item name |
-//! | `types(A => B, ...)` | async spelling → sync spelling type substitutions |
-//! | `calls(f => g, ...)` | async call name → sync call name (the `.await` is written in the source) |
-//! | `async(doc = "...")` | extra doc text on the async item |
-//! | `async(test_attr = #[...])` | runtime attribute for [`macro@test`] (default `#[tokio::test]`) |
+//! | `sync(doc = "...", attr = #[...])` / `async(...)` | variant-specific docs and repeatable item attributes |
+//! | `sync(test_attr = #[...])` / `async(...)` | test attributes (defaults: `#[test]` / `#[tokio::test]`) |
+//! | `sync(declaration { item shell })` / `async(...)` | complete outer declaration for an item variant |
 //! | `async(flavor = async_fn \| async_trait)` | async trait/impl emission style |
 //! | `async(wasm_send)` | with `async_trait`: native `Send` / wasm `?Send` cfg pairing |
 //!
 //! Both variants can be feature-gated, either one, or neither. The attribute
 //! is **never wrapped in `cfg_attr`** — it always runs and emits the cfg gates
 //! itself, so the expansion stays correct under every feature combination.
+//!
+//! # Explicit declarations
+//!
+//! Functions, traits, impls, structs, and enums can each supply a complete
+//! empty Rust item shell. Its outer attributes and header are emitted exactly
+//! as written; the rewritten implementation block, members, fields, or
+//! variants are attached afterward:
+//!
+//! ```ignore
+//! #[unasync::dual(
+//!     sync(declaration {
+//!         /// Blocking API.
+//!         #[must_use]
+//!         pub fn read(store: &Store) -> u32 {}
+//!     }),
+//! )]
+//! /// Async API.
+//! pub async fn async_read(store: &AsyncStore) -> u32 {
+//!     store.get().await
+//! }
+//! ```
+//!
+//! Empty `trait`, `impl`, `struct`, and `enum` bodies similarly receive the
+//! source members, fields, or variants. Functions also accept the compact
+//! body-less `fn name(...);` form. With only a sync declaration, the original
+//! async item retains its ordinary docs, attributes, visibility, and header.
+//! Both declarations may be explicit.
 //!
 //! # Divergent bodies
 //!

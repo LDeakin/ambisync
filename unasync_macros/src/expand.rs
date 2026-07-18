@@ -10,7 +10,7 @@ use syn::{
     parse_quote,
 };
 
-use crate::config::{Config, Flavor, async_ident, sync_ident};
+use crate::config::{Config, Declaration, Flavor, async_ident, sync_ident};
 use crate::rewrite::{Rewriter, Variant};
 use crate::subst::SubstTable;
 
@@ -82,17 +82,27 @@ pub fn content(input: TokenStream) -> syn::Result<TokenStream> {
 }
 
 fn validate_scope_defaults(defaults: &Config) -> syn::Result<()> {
-    if defaults.sync.name.is_some() || defaults.async_.name.is_some() {
-        let name = defaults
+    if defaults.sync.name.is_some()
+        || defaults.async_.name.is_some()
+        || defaults.sync.declaration.is_some()
+        || defaults.async_.declaration.is_some()
+    {
+        let exact_name = defaults
             .sync
             .name
             .as_ref()
-            .or(defaults.async_.name.as_ref())
-            .expect("checked above");
+            .or(defaults.async_.name.as_ref());
+        let declaration = defaults
+            .sync
+            .declaration
+            .as_ref()
+            .or(defaults.async_.declaration.as_ref());
+        let span =
+            exact_name.map_or_else(|| declaration.expect("checked above").span(), Ident::span);
         return Err(syn::Error::new(
-            name.span(),
-            "exact variant names are item-specific and cannot be scope/content defaults; \
-             put `sync(name = ...)` / `async(name = ...)` on the item",
+            span,
+            "exact variant names and declarations are item-specific and cannot be scope/content \
+             defaults; put them on the item",
         ));
     }
     Ok(())
@@ -153,16 +163,47 @@ fn process_items(items: Vec<Item>, defaults: &Config) -> syn::Result<TokenStream
 
 fn expand_item(item: &Item, cfg: &Config, is_test: bool) -> syn::Result<TokenStream> {
     cfg.validate_effective()?;
-    if !is_test && cfg.async_.test_attr.is_some() {
+    validate_declaration_kinds(item, cfg)?;
+    if !is_test && (cfg.sync.test_attr.is_some() || cfg.async_.test_attr.is_some()) {
         return Err(syn::Error::new_spanned(
             item,
-            "`async(test_attr = #[...])` is only valid on `#[unasync::test]`",
+            "`sync(test_attr = #[...])` / `async(test_attr = #[...])` are only valid on \
+             `#[unasync::test]`",
         ));
     }
     let mut out = TokenStream::new();
     out.extend(emit_variant(item, cfg, Variant::Sync, is_test)?);
     out.extend(emit_variant(item, cfg, Variant::Async, is_test)?);
     Ok(out)
+}
+
+fn validate_declaration_kinds(item: &Item, cfg: &Config) -> syn::Result<()> {
+    let expected = match item {
+        Item::Fn(_) => "function",
+        Item::Trait(_) => "trait",
+        Item::Impl(_) => "impl",
+        Item::Struct(_) => "struct",
+        Item::Enum(_) => "enum",
+        _ => return Ok(()),
+    };
+    for (variant, declaration) in [
+        ("sync", cfg.sync.declaration.as_ref()),
+        ("async", cfg.async_.declaration.as_ref()),
+    ] {
+        if let Some(declaration) = declaration
+            && declaration.kind_name() != expected
+        {
+            return Err(syn::Error::new(
+                declaration.span(),
+                format!(
+                    "`{variant}(declaration {{ ... }})` for this item must declare a {expected}, \
+                     not a {}",
+                    declaration.kind_name()
+                ),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn emit_variant(
@@ -188,36 +229,38 @@ fn emit_variant(
                 ));
             }
             let source_name = func.sig.ident.clone();
-            let async_name = async_ident(cfg.async_.name.as_ref(), &source_name);
-            let sync_name = sync_ident(
-                cfg.sync.name.as_ref(),
-                cfg.sync.pattern.as_ref(),
-                "pattern",
-                &async_name,
-            )?;
+            let async_name = cfg.async_.declaration.as_ref().map_or_else(
+                || async_ident(cfg.async_.name.as_ref(), &source_name),
+                |declaration| {
+                    declaration
+                        .ident()
+                        .expect("function declaration has a name")
+                        .clone()
+                },
+            );
+            let sync_name = if let Some(declaration) = &cfg.sync.declaration {
+                declaration
+                    .ident()
+                    .expect("function declaration has a name")
+                    .clone()
+            } else {
+                sync_ident(
+                    cfg.sync.name.as_ref(),
+                    cfg.sync.pattern.as_ref(),
+                    "pattern",
+                    &async_name,
+                )?
+            };
             ensure_distinct(&sync_name, &async_name)?;
             if variant.is_sync() {
                 func.sig.asyncness = None;
                 table.add_item_call(&source_name, &sync_name);
                 func.sig.ident = sync_name;
-                if is_test {
-                    func.attrs.push(parse_quote!(#[test]));
-                }
             } else {
                 table.add_item_call(&source_name, &async_name);
                 func.sig.ident = async_name;
-                stub_docs(
-                    &mut func.attrs,
-                    &sync_name.to_string(),
-                    cfg.async_.doc.as_ref(),
-                );
-                if is_test {
-                    let attrs = cfg
-                        .async_
-                        .test_attr
-                        .clone()
-                        .unwrap_or_else(|| vec![parse_quote!(#[tokio::test])]);
-                    func.attrs.extend(attrs);
+                if cfg.sync.declaration.is_none() && cfg.async_.declaration.is_none() {
+                    stub_docs(&mut func.attrs, &sync_name.to_string());
                 }
             }
         }
@@ -225,13 +268,28 @@ fn emit_variant(
             passthrough_attrs(&mut item_trait.attrs, variant)?;
             filter_trait_items(&mut item_trait.items, variant);
             let source_trait_ident = item_trait.ident.clone();
-            let async_trait_ident = async_ident(cfg.async_.name.as_ref(), &source_trait_ident);
-            let sync_trait_ident = sync_ident(
-                cfg.sync.name.as_ref(),
-                cfg.sync.type_pattern.as_ref(),
-                "type_pattern",
-                &async_trait_ident,
-            )?;
+            let async_trait_ident = cfg.async_.declaration.as_ref().map_or_else(
+                || async_ident(cfg.async_.name.as_ref(), &source_trait_ident),
+                |declaration| {
+                    declaration
+                        .ident()
+                        .expect("trait declaration has a name")
+                        .clone()
+                },
+            );
+            let sync_trait_ident = if let Some(declaration) = &cfg.sync.declaration {
+                declaration
+                    .ident()
+                    .expect("trait declaration has a name")
+                    .clone()
+            } else {
+                sync_ident(
+                    cfg.sync.name.as_ref(),
+                    cfg.sync.type_pattern.as_ref(),
+                    "type_pattern",
+                    &async_trait_ident,
+                )?
+            };
             ensure_distinct(&sync_trait_ident, &async_trait_ident)?;
             let output_trait_ident = if variant.is_sync() {
                 &sync_trait_ident
@@ -239,14 +297,12 @@ fn emit_variant(
                 &async_trait_ident
             };
             table.add_item_type(&source_trait_ident, output_trait_ident);
-            let mut has_async = false;
             for trait_item in &mut item_trait.items {
                 if let TraitItem::Fn(method) = trait_item {
                     passthrough_attrs(&mut method.attrs, variant)?;
                     if method.sig.asyncness.is_none() {
                         continue;
                     }
-                    has_async = true;
                     if variant.is_sync() {
                         method.sig.asyncness = None;
                         let sync_name = sync_ident(
@@ -267,7 +323,6 @@ fn emit_variant(
                         stub_docs(
                             &mut method.attrs,
                             &format!("{sync_trait_ident}::{sync_name}"),
-                            None,
                         );
                     }
                 }
@@ -276,20 +331,8 @@ fn emit_variant(
                 item_trait.ident = sync_trait_ident;
             } else {
                 item_trait.ident = async_trait_ident;
-                stub_docs(
-                    &mut item_trait.attrs,
-                    &sync_trait_ident.to_string(),
-                    cfg.async_.doc.as_ref(),
-                );
-                match cfg.flavor() {
-                    Flavor::AsyncFn => {
-                        if has_async {
-                            item_trait
-                                .attrs
-                                .push(parse_quote!(#[allow(async_fn_in_trait)]));
-                        }
-                    }
-                    Flavor::AsyncTrait => item_trait.attrs.extend(async_trait_attrs(cfg)),
+                if cfg.sync.declaration.is_none() && cfg.async_.declaration.is_none() {
+                    stub_docs(&mut item_trait.attrs, &sync_trait_ident.to_string());
                 }
             }
         }
@@ -298,14 +341,25 @@ fn emit_variant(
                 return Err(syn::Error::new_spanned(
                     item_impl,
                     "`sync(name = ...)` / `async(name = ...)` cannot name an impl block; \
-                     use `types(...)` for its trait/self types and `sync(pattern = ...)` for methods",
+                     use `sync(types(...))` for its trait/self types and `sync(pattern = ...)` \
+                     for methods",
                 ));
             }
             passthrough_attrs(&mut item_impl.attrs, variant)?;
             filter_impl_items(&mut item_impl.items, variant);
-            let inherent = item_impl.trait_.is_none();
-            let sync_self_name = if variant.is_sync() {
-                sync_self_name(&table, &item_impl.self_ty)
+            let output_inherent = if let Some(Declaration::Impl(declaration)) = if variant.is_sync()
+            {
+                cfg.sync.declaration.as_ref()
+            } else {
+                cfg.async_.declaration.as_ref()
+            } {
+                declaration.trait_.is_none()
+            } else {
+                item_impl.trait_.is_none()
+            };
+            let sync_self_name = if let Some(Declaration::Impl(declaration)) = &cfg.sync.declaration
+            {
+                type_last_ident(&declaration.self_ty)
             } else {
                 sync_self_name(&SubstTable::build(cfg), &item_impl.self_ty)
             };
@@ -325,40 +379,49 @@ fn emit_variant(
                         )?;
                         table.add_auto_call(&method.sig.ident, &sync_name);
                         method.sig.ident = sync_name;
-                    } else if inherent && let Some(self_name) = &sync_self_name {
+                    } else if output_inherent && let Some(self_name) = &sync_self_name {
                         let sync_name = sync_ident(
                             None,
                             cfg.sync.pattern.as_ref(),
                             "pattern",
                             &method.sig.ident,
                         )?;
-                        stub_docs(
-                            &mut method.attrs,
-                            &format!("{self_name}::{sync_name}"),
-                            None,
-                        );
+                        stub_docs(&mut method.attrs, &format!("{self_name}::{sync_name}"));
                     }
                 }
             }
-            if variant.is_sync() {
-                if let Some((_, trait_path, _)) = &mut item_impl.trait_ {
-                    table.subst_path(trait_path, false);
-                }
-            } else if cfg.flavor() == Flavor::AsyncTrait && !inherent {
-                item_impl.attrs.extend(async_trait_attrs(cfg));
+            if variant.is_sync()
+                && let Some((_, trait_path, _)) = &mut item_impl.trait_
+            {
+                table.subst_path(trait_path, false);
             }
         }
         Item::Struct(item_struct) => {
             passthrough_attrs(&mut item_struct.attrs, variant)?;
             filter_fields(&mut item_struct.fields, variant);
             let source_name = item_struct.ident.clone();
-            let async_name = async_ident(cfg.async_.name.as_ref(), &source_name);
-            let sync_name = sync_ident(
-                cfg.sync.name.as_ref(),
-                cfg.sync.type_pattern.as_ref(),
-                "type_pattern",
-                &async_name,
-            )?;
+            let async_name = cfg.async_.declaration.as_ref().map_or_else(
+                || async_ident(cfg.async_.name.as_ref(), &source_name),
+                |declaration| {
+                    declaration
+                        .ident()
+                        .expect("struct declaration has a name")
+                        .clone()
+                },
+            );
+            let sync_name = if let Some(declaration) = &cfg.sync.declaration {
+                declaration
+                    .ident()
+                    .expect("struct declaration has a name")
+                    .clone()
+            } else {
+                sync_ident(
+                    cfg.sync.name.as_ref(),
+                    cfg.sync.type_pattern.as_ref(),
+                    "type_pattern",
+                    &async_name,
+                )?
+            };
             ensure_distinct(&sync_name, &async_name)?;
             let output_name = if variant.is_sync() {
                 &sync_name
@@ -367,12 +430,11 @@ fn emit_variant(
             };
             table.add_item_type(&source_name, output_name);
             item_struct.ident = output_name.clone();
-            if !variant.is_sync() {
-                stub_docs(
-                    &mut item_struct.attrs,
-                    &sync_name.to_string(),
-                    cfg.async_.doc.as_ref(),
-                );
+            if !variant.is_sync()
+                && cfg.sync.declaration.is_none()
+                && cfg.async_.declaration.is_none()
+            {
+                stub_docs(&mut item_struct.attrs, &sync_name.to_string());
             }
         }
         Item::Enum(item_enum) => {
@@ -390,13 +452,28 @@ fn emit_variant(
                 })
                 .collect();
             let source_name = item_enum.ident.clone();
-            let async_name = async_ident(cfg.async_.name.as_ref(), &source_name);
-            let sync_name = sync_ident(
-                cfg.sync.name.as_ref(),
-                cfg.sync.type_pattern.as_ref(),
-                "type_pattern",
-                &async_name,
-            )?;
+            let async_name = cfg.async_.declaration.as_ref().map_or_else(
+                || async_ident(cfg.async_.name.as_ref(), &source_name),
+                |declaration| {
+                    declaration
+                        .ident()
+                        .expect("enum declaration has a name")
+                        .clone()
+                },
+            );
+            let sync_name = if let Some(declaration) = &cfg.sync.declaration {
+                declaration
+                    .ident()
+                    .expect("enum declaration has a name")
+                    .clone()
+            } else {
+                sync_ident(
+                    cfg.sync.name.as_ref(),
+                    cfg.sync.type_pattern.as_ref(),
+                    "type_pattern",
+                    &async_name,
+                )?
+            };
             ensure_distinct(&sync_name, &async_name)?;
             let output_name = if variant.is_sync() {
                 &sync_name
@@ -405,12 +482,11 @@ fn emit_variant(
             };
             table.add_item_type(&source_name, output_name);
             item_enum.ident = output_name.clone();
-            if !variant.is_sync() {
-                stub_docs(
-                    &mut item_enum.attrs,
-                    &sync_name.to_string(),
-                    cfg.async_.doc.as_ref(),
-                );
+            if !variant.is_sync()
+                && cfg.sync.declaration.is_none()
+                && cfg.async_.declaration.is_none()
+            {
+                stub_docs(&mut item_enum.attrs, &sync_name.to_string());
             }
         }
         other => {
@@ -427,6 +503,8 @@ fn emit_variant(
         return Err(err);
     }
 
+    apply_variant_metadata(&mut item, cfg, variant, is_test)?;
+
     let gate = if variant.is_sync() {
         &cfg.sync.gate
     } else {
@@ -439,6 +517,118 @@ fn emit_variant(
     }
 
     Ok(quote!(#item))
+}
+
+fn apply_variant_metadata(
+    item: &mut Item,
+    cfg: &Config,
+    variant: Variant,
+    is_test: bool,
+) -> syn::Result<()> {
+    let (doc, attrs, test_attr, declaration) = if variant.is_sync() {
+        (
+            &cfg.sync.doc,
+            &cfg.sync.attrs,
+            &cfg.sync.test_attr,
+            &cfg.sync.declaration,
+        )
+    } else {
+        (
+            &cfg.async_.doc,
+            &cfg.async_.attrs,
+            &cfg.async_.test_attr,
+            &cfg.async_.declaration,
+        )
+    };
+
+    if let Some(declaration) = declaration {
+        apply_declaration(item, declaration)?;
+    }
+
+    apply_async_flavor(item, cfg, variant);
+
+    let Some(item_attrs) = item_attrs_mut(item) else {
+        return Ok(());
+    };
+    if let Some(doc) = doc {
+        append_doc(item_attrs, doc);
+    }
+    item_attrs.extend(attrs.iter().cloned());
+
+    if is_test {
+        let default = if variant.is_sync() {
+            vec![parse_quote!(#[test])]
+        } else {
+            vec![parse_quote!(#[tokio::test])]
+        };
+        item_attrs.extend(test_attr.clone().unwrap_or(default));
+    }
+    Ok(())
+}
+
+fn apply_declaration(item: &mut Item, declaration: &Declaration) -> syn::Result<()> {
+    match (item, declaration) {
+        (Item::Fn(item), Declaration::Fn(declaration)) => {
+            item.attrs = declaration.attrs.clone();
+            item.vis = declaration.vis.clone();
+            item.sig = declaration.sig.clone();
+        }
+        (Item::Trait(item), Declaration::Trait(declaration)) => {
+            let members = std::mem::take(&mut item.items);
+            *item = declaration.clone();
+            item.items = members;
+        }
+        (Item::Impl(item), Declaration::Impl(declaration)) => {
+            let members = std::mem::take(&mut item.items);
+            *item = declaration.clone();
+            item.items = members;
+        }
+        (Item::Struct(item), Declaration::Struct(declaration)) => {
+            let fields = item.fields.clone();
+            let semi_token = item.semi_token;
+            *item = declaration.clone();
+            item.fields = fields;
+            item.semi_token = semi_token;
+        }
+        (Item::Enum(item), Declaration::Enum(declaration)) => {
+            let variants = std::mem::take(&mut item.variants);
+            *item = declaration.clone();
+            item.variants = variants;
+        }
+        _ => {
+            return Err(syn::Error::new(
+                declaration.span(),
+                "declaration kind does not match the annotated item",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn apply_async_flavor(item: &mut Item, cfg: &Config, variant: Variant) {
+    if variant.is_sync() {
+        return;
+    }
+    match item {
+        Item::Trait(item_trait) => match cfg.flavor() {
+            Flavor::AsyncFn => {
+                if item_trait.items.iter().any(
+                    |item| matches!(item, TraitItem::Fn(method) if method.sig.asyncness.is_some()),
+                ) {
+                    item_trait
+                        .attrs
+                        .push(parse_quote!(#[allow(async_fn_in_trait)]));
+                }
+            }
+            Flavor::AsyncTrait => item_trait.attrs.extend(async_trait_attrs(cfg)),
+        },
+        Item::Impl(item_impl)
+            if cfg.flavor() == Flavor::AsyncTrait && item_impl.trait_.is_some() =>
+        {
+            item_impl.attrs.extend(async_trait_attrs(cfg));
+        }
+        _ => {}
+    }
 }
 
 fn item_attrs_mut(item: &mut Item) -> Option<&mut Vec<Attribute>> {
@@ -567,14 +757,20 @@ fn passthrough_attrs(attrs: &mut Vec<Attribute>, variant: Variant) -> syn::Resul
 
 /// Replace an async variant's doc comments with the conventional stub:
 /// `/// Async variant of [`target`].`
-fn stub_docs(attrs: &mut Vec<Attribute>, target: &str, extra: Option<&LitStr>) {
+fn stub_docs(attrs: &mut Vec<Attribute>, target: &str) {
     attrs.retain(|attr| !matches!(&attr.meta, Meta::NameValue(nv) if nv.path.is_ident("doc")));
     let text = format!(" Async variant of [`{target}`].");
     attrs.insert(0, parse_quote!(#[doc = #text]));
-    if let Some(extra) = extra {
-        attrs.insert(1, parse_quote!(#[doc = ""]));
-        attrs.insert(2, parse_quote!(#[doc = #extra]));
+}
+
+fn append_doc(attrs: &mut Vec<Attribute>, extra: &LitStr) {
+    if attrs
+        .iter()
+        .any(|attr| matches!(&attr.meta, Meta::NameValue(nv) if nv.path.is_ident("doc")))
+    {
+        attrs.push(parse_quote!(#[doc = ""]));
     }
+    attrs.push(parse_quote!(#[doc = #extra]));
 }
 
 fn async_trait_attrs(cfg: &Config) -> Vec<Attribute> {

@@ -1,0 +1,5 @@
+error: an `async(declaration { ... })` function must be `async fn`
+ --> tests/ui/fail/async_declaration_not_async.rs:4:9
+  |
+4 |         fn async_value() -> u32;
+  |         ^^^^^^^^^^^^^^^^^^^^^^^

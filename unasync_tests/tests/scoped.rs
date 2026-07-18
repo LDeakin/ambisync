@@ -31,15 +31,14 @@ async fn async_make_store() -> AsyncStore {
 
 #[unasync::scope(
     async(feature = "async"),
-    sync(pattern = "async_{}"),
-    types(AsyncStore => Store),
+    sync(pattern = "async_{}", types(AsyncStore => Store)),
 )]
 mod scoped {
     #![allow(clippy::let_unit_value)]
 
     use super::*;
 
-    #[dual(calls(async_make_store => make_store))]
+    #[dual(sync(calls(async_make_store => make_store)))]
     pub async fn async_scoped_value() -> u32 {
         let store: AsyncStore = async_make_store().await;
         store.get().await
@@ -69,12 +68,11 @@ async fn scope_applies_defaults_async() {
 
 unasync::content! {
     #![defaults(
-        sync(pattern = "async_{}"),
+        sync(pattern = "async_{}", types(AsyncStore => Store)),
         async(feature = "async"),
-        types(AsyncStore => Store),
     )]
 
-    #[dual(calls(async_make_store => make_store))]
+    #[dual(sync(calls(async_make_store => make_store)))]
     pub async fn async_content_value() -> u32 {
         let store: AsyncStore = async_make_store().await;
         store.get().await
@@ -119,7 +117,7 @@ mod flavor_override {
 
     #[dual(
         async(flavor = async_fn),
-        types(AsyncLocalTask => LocalTask),
+        sync(types(AsyncLocalTask => LocalTask)),
     )]
     impl AsyncLocalTask for Local {
         async fn async_run(&self) {

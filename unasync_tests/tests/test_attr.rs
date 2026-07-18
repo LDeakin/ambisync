@@ -30,9 +30,11 @@ async fn async_make_store() -> AsyncStore {
 
 #[unasync::test(
     async(feature = "async"),
-    sync(pattern = "async_{}"),
-    types(AsyncStore => Store),
-    calls(async_make_store => make_store),
+    sync(
+        pattern = "async_{}",
+        types(AsyncStore => Store),
+        calls(async_make_store => make_store),
+    ),
 )]
 async fn async_store_roundtrip() {
     let store = async_make_store().await;
@@ -41,16 +43,28 @@ async fn async_store_roundtrip() {
 
 // Explicit runtime attribute.
 #[unasync::test(
-    sync(pattern = "async_{}"),
+    sync(
+        pattern = "async_{}",
+        test_attr = #[test],
+        types(AsyncStore => Store),
+        calls(async_make_store => make_store),
+    ),
     async(feature = "async", test_attr = #[tokio::test]),
-    types(AsyncStore => Store),
-    calls(async_make_store => make_store),
 )]
 async fn async_store_roundtrip_explicit_attr() {
     let store = async_make_store().await;
     let expected = unasync::alt!(sync => 1, async => 2);
     assert_eq!(store.get().await, expected);
 }
+
+#[unasync::test(
+    sync(declaration {
+        /// Test generated from an explicit blocking declaration.
+        fn declared_test();
+    }),
+    async(feature = "async"),
+)]
+async fn async_declared_test() {}
 
 // Result-returning tests work in both variants.
 #[unasync::test(sync(pattern = "async_{}"), async(feature = "async"))]

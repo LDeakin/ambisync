@@ -21,9 +21,8 @@ impl AsyncConn {
 }
 
 #[dual(
-    sync(type_pattern = "Async{}"),
+    sync(type_pattern = "Async{}", types(AsyncConn => Conn)),
     async(feature = "async"),
-    types(AsyncConn => Conn),
 )]
 pub struct AsyncClient {
     conn: AsyncConn,
@@ -31,8 +30,10 @@ pub struct AsyncClient {
 
 #[dual(
     async(feature = "async"),
-    sync(pattern = "async_{}"),
-    types(AsyncClient => Client, AsyncConn => Conn),
+    sync(
+        pattern = "async_{}",
+        types(AsyncClient => Client, AsyncConn => Conn),
+    ),
 )]
 #[allow(clippy::new_without_default)]
 impl AsyncClient {
@@ -134,8 +135,7 @@ pub struct AsyncWidget;
 
 #[dual(
     async(feature = "async"),
-    sync(pattern = "async_{}"),
-    types(AsyncWidget => Widget),
+    sync(pattern = "async_{}", types(AsyncWidget => Widget)),
 )]
 impl AsyncWidget {
     pub fn size(&self) -> u32 {
@@ -188,9 +188,8 @@ pub struct SameNamed;
 pub struct AsyncSameNamed;
 
 #[dual(
-    sync(pattern = "{}"),
+    sync(pattern = "{}", types(AsyncSameNamed => SameNamed)),
     async(feature = "async"),
-    types(AsyncSameNamed => SameNamed),
 )]
 impl AsyncSameNamed {
     pub async fn value(&self) -> u32 {

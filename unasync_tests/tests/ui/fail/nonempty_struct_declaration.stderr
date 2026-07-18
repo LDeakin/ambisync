@@ -1,0 +1,8 @@
+error: a struct declaration shell must have no fields
+ --> tests/ui/fail/nonempty_struct_declaration.rs:3:22
+  |
+3 |           struct Value {
+  |  ______________________^
+4 | |             value: u32,
+5 | |         }
+  | |_________^

@@ -1,0 +1,5 @@
+error: `sync(declaration { ... })` for this item must declare a struct, not a function
+ --> tests/ui/fail/declaration_on_struct.rs:3:9
+  |
+3 |         fn value() -> u32;
+  |         ^^

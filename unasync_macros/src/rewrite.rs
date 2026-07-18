@@ -4,7 +4,7 @@
 //! The source is written in async form, so the async pass only resolves the
 //! `alt!`/`sync_only!`/`async_only!` markers. The sync pass does the actual
 //! derivation: unwrap `.await`, apply the substitution table to types,
-//! expression paths, patterns and trait bounds, apply `calls(...)` renames,
+//! expression paths, patterns and trait bounds, apply `sync(calls(...))` renames,
 //! resolve markers, and rewrite macro token streams (best effort).
 
 use proc_macro2::Span;

@@ -1,0 +1,5 @@
+error: `types(...)` is sync-specific; move it inside `sync(types(...))`
+ --> tests/ui/fail/top_level_substitution.rs:7:5
+  |
+7 |     types(AsyncStore => Store),
+  |     ^^^^^
