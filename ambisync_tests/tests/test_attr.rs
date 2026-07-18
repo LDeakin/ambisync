@@ -1,5 +1,4 @@
-//! `#[ambisync::test]`: one async-written test expands to a sync `#[test]` and
-//! a cfg-gated async test with a pluggable runtime attribute.
+//! `#[ambisync::test]`: one async-written test expands to a sync `#[test]` and a cfg-gated async test with a pluggable runtime attribute.
 
 #![allow(dead_code)]
 

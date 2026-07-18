@@ -1,7 +1,5 @@
-//! `#[ambisync]` on traits and trait impls: trait renaming, method
-//! renaming, default bodies, trait-impl target renaming via the types table,
-//! and the `async_trait` flavor. The source is the async trait; the sync
-//! trait is derived.
+//! `#[ambisync]` on traits and trait impls: trait renaming, method renaming, default bodies, trait-impl target renaming via the types table, and the `async_trait` flavor.
+//! The source is the async trait; the sync trait is derived.
 
 #![allow(dead_code)]
 

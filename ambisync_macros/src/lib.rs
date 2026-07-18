@@ -1,7 +1,6 @@
 //! Proc-macro implementation for the [`ambisync`] crate.
 //!
-//! Do not depend on this crate directly; use `ambisync`, which re-exports the
-//! macros together with the runtime helpers.
+//! Do not depend on this crate directly; use `ambisync`, which re-exports the macros together with the runtime helpers.
 //!
 //! [`ambisync`]: https://docs.rs/ambisync
 

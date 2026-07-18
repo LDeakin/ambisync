@@ -1,6 +1,4 @@
-//! Item-level expansion: emit the async variant (the source, minus helper
-//! attributes and resolved markers) and the derived sync variant, plus the
-//! `scope`/`scoped!` shared-defaults wrappers.
+//! Item-level expansion: emit the async variant (the source, minus helper attributes and resolved markers) and the derived sync variant, plus the `scope`/`scoped!` shared-defaults wrappers.
 
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};

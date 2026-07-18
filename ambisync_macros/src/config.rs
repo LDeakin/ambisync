@@ -1,5 +1,4 @@
-//! Attribute-argument parsing for `#[ambisync]`, `#[ambisync::test]`,
-//! `#[ambisync::scope]` and `ambisync::scoped!`.
+//! Attribute-argument parsing for `#[ambisync]`, `#[ambisync::test]`, `#[ambisync::scope]` and `ambisync::scoped!`.
 
 use proc_macro2::TokenStream;
 use syn::parse::discouraged::Speculative;

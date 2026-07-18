@@ -1,11 +1,7 @@
-//! The core two-variant rewriter: one `VisitMut` pass, run once per variant over a
-//! cloned item.
+//! The core two-variant rewriter: one `VisitMut` pass, run once per variant over a cloned item.
 //!
-//! The source is written in async form, so the async pass only resolves the
-//! `alt!`/`sync_only!`/`async_only!` markers. The sync pass does the actual
-//! derivation: unwrap `.await`, apply the substitution table to types,
-//! expression paths, patterns and trait bounds, apply `sync(calls(...))` renames,
-//! resolve markers, and rewrite macro token streams (best effort).
+//! The source is written in async form, so the async pass only resolves the `alt!`/`sync_only!`/`async_only!` markers.
+//! The sync pass does the actual derivation: unwrap `.await`, apply the substitution table to types, expression paths, patterns and trait bounds, apply `sync(calls(...))` renames, resolve markers, and rewrite macro token streams (best effort).
 
 use proc_macro2::Span;
 use syn::parse::{Parse, ParseStream};

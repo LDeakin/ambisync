@@ -1,7 +1,5 @@
-//! `#[ambisync]` on free functions: the source is written entirely in
-//! async form (async names, async types, `.await`); the sync variant is
-//! derived. Covers renaming, gating, `sync(types(...))`, `sync(calls(...))`,
-//! markers, declarations, and macro-token rewriting.
+//! `#[ambisync]` on free functions: the source is written entirely in async form (async names, async types, `.await`); the sync variant is derived.
+//! Covers renaming, gating, `sync(types(...))`, `sync(calls(...))`, markers, declarations, and macro-token rewriting.
 
 #![allow(dead_code)]
 

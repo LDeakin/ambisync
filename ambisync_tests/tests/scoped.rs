@@ -1,6 +1,5 @@
-//! Shared defaults: `#[ambisync::scope]` on an inline module and
-//! `ambisync::scoped! { #![defaults(...)] ... }`. The rename patterns and
-//! substitution tables are stated once per module.
+//! Shared defaults: `#[ambisync::scope]` on an inline module and `ambisync::scoped! { #![defaults(...)] ... }`.
+//! The rename patterns and substitution tables are stated once per module.
 
 #![allow(dead_code)]
 

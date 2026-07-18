@@ -1,6 +1,4 @@
-//! `#[ambisync]` on structs, enums and impl blocks: field-type twinning,
-//! self-type substitution, constructor rewriting, method renames, automatic
-//! call-following, and `#[sync_only]`/`#[async_only]` member gating.
+//! `#[ambisync]` on structs, enums and impl blocks: field-type twinning, self-type substitution, constructor rewriting, method renames, automatic call-following, and `#[sync_only]`/`#[async_only]` member gating.
 
 #![allow(dead_code)]
 

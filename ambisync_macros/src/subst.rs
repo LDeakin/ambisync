@@ -1,9 +1,8 @@
 //! Type/path/call substitution tables applied to the derived sync expansion.
 //!
-//! The source is written in async form; entries map the async spelling to the
-//! sync spelling. Matching is purely syntactic (token-level, after parse
-//! normalization). There is no name resolution: aliased spellings must be
-//! added to the table by the user.
+//! The source is written in async form; entries map the async spelling to the sync spelling.
+//! Matching is purely syntactic (token-level, after parse normalization).
+//! There is no name resolution: aliased spellings must be added to the table by the user.
 
 use proc_macro2::{Delimiter, Group, TokenStream, TokenTree};
 use quote::ToTokens;
