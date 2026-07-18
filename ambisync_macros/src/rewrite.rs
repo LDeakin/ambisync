@@ -255,7 +255,7 @@ impl VisitMut for Rewriter<'_> {
             match expr {
                 Expr::MethodCall(call) => {
                     if let Some(to) = self.table.lookup_call(&call.method) {
-                        call.method = Ident::new(&to.to_string(), call.method.span());
+                        call.method = to;
                     }
                 }
                 Expr::Call(call) => {
@@ -265,7 +265,7 @@ impl VisitMut for Rewriter<'_> {
                         && last.arguments.is_none()
                         && let Some(to) = self.table.lookup_call(&last.ident)
                     {
-                        last.ident = Ident::new(&to.to_string(), last.ident.span());
+                        last.ident = to;
                     }
                 }
                 Expr::Path(path) if path.qself.is_none() => {
@@ -286,6 +286,9 @@ impl VisitMut for Rewriter<'_> {
             *ty = replacement;
             return;
         }
+        // The pattern rename is in place (leading ident only), so keep visiting:
+        // generic arguments may hold further substitutable types.
+        self.table.subst_type_pattern(ty);
         visit_mut::visit_type_mut(self, ty);
     }
 

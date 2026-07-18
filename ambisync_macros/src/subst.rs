@@ -9,7 +9,7 @@ use quote::ToTokens;
 use syn::punctuated::Punctuated;
 use syn::{Ident, Path, PathArguments, PathSegment, Token, Type};
 
-use crate::config::Config;
+use crate::config::{Config, RenamePattern};
 
 #[derive(Default)]
 pub struct SubstTable {
@@ -22,6 +22,10 @@ pub struct SubstTable {
     idents: Vec<(String, Ident)>,
     /// Call renames: async (source) name → sync name.
     calls: Vec<(String, Ident)>,
+    /// Pattern entries from `types("Async{}")`, consulted for bare type idents after the exact tables.
+    type_patterns: Vec<RenamePattern>,
+    /// Pattern entries from `calls("{}_async")`, consulted for call names after the exact `calls` entries.
+    call_patterns: Vec<RenamePattern>,
     /// Textual spellings of `paths` and `calls` entries, applied to doc comments at identifier boundaries (`[`AsyncStore`]` → `[`Store`]`).
     doc_texts: Vec<(String, String)>,
 }
@@ -40,6 +44,8 @@ impl SubstTable {
                 .doc_texts
                 .push((swap.async_.to_string(), swap.sync.to_string()));
         }
+        table.type_patterns = cfg.sync.type_patterns.clone();
+        table.call_patterns = cfg.sync.call_patterns.clone();
         table
     }
 
@@ -120,17 +126,21 @@ impl SubstTable {
             && self.paths.is_empty()
             && self.idents.is_empty()
             && self.calls.is_empty()
+            && self.type_patterns.is_empty()
+            && self.call_patterns.is_empty()
     }
 
-    pub fn lookup_call(&self, name: &Ident) -> Option<&Ident> {
+    pub fn lookup_call(&self, name: &Ident) -> Option<Ident> {
         self.lookup_call_str(&name.to_string())
+            .map(|to| Ident::new(&to, name.span()))
     }
 
-    fn lookup_call_str(&self, name: &str) -> Option<&Ident> {
+    fn lookup_call_str(&self, name: &str) -> Option<String> {
         self.calls
             .iter()
             .find(|(from, _)| from == name)
-            .map(|(_, to)| to)
+            .map(|(_, to)| to.to_string())
+            .or_else(|| pattern_rename(&self.call_patterns, name))
     }
 
     /// Whole-type match: returns the replacement if `ty` matches an entry token-for-token.
@@ -143,6 +153,33 @@ impl SubstTable {
             .iter()
             .find(|(k, _)| *k == key)
             .map(|(_, t)| t.clone())
+    }
+
+    /// Pattern fallback for type position: rename the leading ident of a plain path type in place (`AsyncGroup<T>` → `Group<T>` under `types("Async{}")`).
+    /// Generic arguments are untouched; the caller keeps visiting them.
+    pub fn subst_type_pattern(&self, ty: &mut Type) -> bool {
+        if let Type::Path(type_path) = ty
+            && type_path.qself.is_none()
+        {
+            self.pattern_rename_leading_segment(&mut type_path.path)
+        } else {
+            false
+        }
+    }
+
+    /// Rename a path's leading segment through `type_patterns`, mirroring how exact single-ident entries match a path prefix.
+    fn pattern_rename_leading_segment(&self, path: &mut Path) -> bool {
+        if path.leading_colon.is_some() {
+            return false;
+        }
+        let Some(first) = path.segments.first_mut() else {
+            return false;
+        };
+        let Some(to) = pattern_rename(&self.type_patterns, &first.ident.to_string()) else {
+            return false;
+        };
+        first.ident = Ident::new(&to, first.ident.span());
+        true
     }
 
     /// Prefix-substitute a path in place (`AsyncStore::new` → `Store::new`).
@@ -194,7 +231,9 @@ impl SubstTable {
             path.segments = segments;
             return true;
         }
-        false
+        // Pattern fallback: the rename is in place, so the segments' own argument
+        // spellings (already valid for this position) are preserved as written.
+        self.pattern_rename_leading_segment(path)
     }
 
     /// Best-effort rewriting inside macro token streams for the sync expansion: single-ident type substitutions, and call renames recognized as `name ( ... )`.
@@ -217,7 +256,7 @@ impl SubstTable {
                         && let Some(TokenTree::Group(args)) = trees.get(i + 1)
                         && args.delimiter() == Delimiter::Parenthesis
                     {
-                        out.push(TokenTree::Ident(Ident::new(&to.to_string(), ident.span())));
+                        out.push(TokenTree::Ident(Ident::new(&to, ident.span())));
                         let mut new_args = Group::new(
                             Delimiter::Parenthesis,
                             self.rewrite_macro_tokens(args.stream()),
@@ -227,8 +266,14 @@ impl SubstTable {
                         i += 2;
                         continue;
                     }
-                    if let Some((_, to)) = self.idents.iter().find(|(from, _)| *from == name) {
-                        out.push(TokenTree::Ident(Ident::new(&to.to_string(), ident.span())));
+                    let type_subst = self
+                        .idents
+                        .iter()
+                        .find(|(from, _)| *from == name)
+                        .map(|(_, to)| to.to_string())
+                        .or_else(|| pattern_rename(&self.type_patterns, &name));
+                    if let Some(to) = type_subst {
+                        out.push(TokenTree::Ident(Ident::new(&to, ident.span())));
                     } else {
                         out.push(trees[i].clone());
                     }
@@ -246,7 +291,10 @@ impl SubstTable {
     /// Substitute the table's spellings inside doc comment text, matching at identifier boundaries just like the code rewrites: `paths` entries (including module-qualified ones) and `calls` renames.
     /// A match must not be preceded by an identifier character or `::` (a longer path), and must not be followed by an identifier character; a trailing `::` is fine, mirroring path prefix substitution (`AsyncStore::new`).
     pub fn rewrite_doc_text(&self, text: &str) -> Option<String> {
-        if self.doc_texts.is_empty() {
+        if self.doc_texts.is_empty()
+            && self.type_patterns.is_empty()
+            && self.call_patterns.is_empty()
+        {
             return None;
         }
         let mut out = String::with_capacity(text.len());
@@ -270,6 +318,24 @@ impl SubstTable {
                         continue 'outer;
                     }
                 }
+                // Pattern fallback: match the whole identifier at this position.
+                let ident_len: usize = rest
+                    .chars()
+                    .take_while(|c| is_ident_char(*c))
+                    .map(char::len_utf8)
+                    .sum();
+                if ident_len > 0 {
+                    let ident = &rest[..ident_len];
+                    if let Some(to) = pattern_rename(&self.type_patterns, ident)
+                        .or_else(|| pattern_rename(&self.call_patterns, ident))
+                    {
+                        out.push_str(&to);
+                        rest = &rest[ident_len..];
+                        prev = ident.chars().next_back();
+                        changed = true;
+                        continue 'outer;
+                    }
+                }
             }
             let ch = rest.chars().next().expect("rest is non-empty");
             out.push(ch);
@@ -282,6 +348,16 @@ impl SubstTable {
 
 fn is_ident_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
+}
+
+/// First matching pattern wins; a rename only applies when the derived name is itself a valid identifier
+/// (so e.g. `async_{}` never rewrites `async_2` into the non-ident `2`).
+fn pattern_rename(patterns: &[RenamePattern], name: &str) -> Option<String> {
+    patterns.iter().find_map(|pattern| {
+        pattern
+            .sync_name_str(name)
+            .filter(|to| syn::parse_str::<Ident>(to).is_ok())
+    })
 }
 
 /// A path's doc-comment spelling: its token string with whitespace removed (`mod_x :: AsyncThing` → `mod_x::AsyncThing`).

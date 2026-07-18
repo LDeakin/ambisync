@@ -804,6 +804,73 @@ mod tests {
     }
 
     #[test]
+    fn pattern_entries_substitute_types_and_calls() {
+        let out = expand(
+            quote! {
+                sync(
+                    fn_pattern = "{}_async",
+                    types("Async{}"),
+                    calls("{}_async", "create_async_{} => create_{}"),
+                ),
+                async(feature = "async"),
+            },
+            quote! {
+                /// Reads an [`AsyncStore`] via [`read_async`], [`helper_async`] and
+                /// [`create_async_store`]; `MyAsyncStore` is untouched.
+                async fn read_async(store: &AsyncStore) -> Vec<AsyncItem> {
+                    let created: AsyncStore = create_async_store().await;
+                    let value = helper_async().await;
+                    assert_eq!(items_async(&created, value).await.len(), value);
+                    items_async(&created, value).await
+                }
+            },
+        );
+        // Signature: fn name via fn_pattern, types via the `types("Async{}")` pattern.
+        assert!(
+            out.contains("fn read (store : & Store) -> Vec < Item >"),
+            "{out}"
+        );
+        // Calls: suffix pattern, arrow pattern, and calls inside macro tokens.
+        assert!(out.contains("create_store ()"), "{out}");
+        assert!(out.contains("helper ()"), "{out}");
+        assert!(out.contains("items (& created , value)"), "{out}");
+        // Docs follow the pattern renames at identifier boundaries.
+        assert!(out.contains("[`Store`]"), "{out}");
+        assert!(out.contains("[`read`]"), "{out}");
+        assert!(out.contains("[`helper`]"), "{out}");
+        assert!(out.contains("[`create_store`]"), "{out}");
+        assert!(out.contains("`MyAsyncStore`"), "{out}");
+        // The async variant is untouched.
+        assert!(
+            out.contains("async fn read_async (store : & AsyncStore)"),
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn exact_entries_win_over_patterns() {
+        let out = expand(
+            quote! {
+                sync(
+                    name = "read",
+                    types("Async{}", AsyncStore => BlockingStore),
+                    calls("async_{}", async_helper => blocking_helper),
+                ),
+                async(feature = "async"),
+            },
+            quote! {
+                async fn async_read(store: &AsyncStore, task: &AsyncTask) -> u32 {
+                    async_helper(store).await + async_other(task).await
+                }
+            },
+        );
+        assert!(out.contains("store : & BlockingStore"), "{out}");
+        assert!(out.contains("task : & Task"), "{out}");
+        assert!(out.contains("blocking_helper (store)"), "{out}");
+        assert!(out.contains("other (task)"), "{out}");
+    }
+
+    #[test]
     fn send_policies_control_async_trait_emission() {
         let expand_with = |async_options: proc_macro2::TokenStream| {
             expand(

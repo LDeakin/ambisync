@@ -65,11 +65,18 @@
 //! | `type_pattern = "Async{}"` | ✓ | — | derive sync type/trait names; `{}` captures the sync name |
 //! | `type_pattern = "Async{} => Sync{}"` | ✓ | — | arrow form: map the async spelling to a sync spelling sharing the `{}` stem |
 //! | `types(A => B, ...)` | ✓ | — | type substitutions, token-level, generic-aware; paths may be module-qualified (`mod_x::A => mod_y::B`) |
+//! | `types("Async{}", ...)` | ✓ | — | pattern entry: renames every matching type ident (`AsyncStore` → `Store`) |
 //! | `calls(f => g, ...)` | ✓ | — | call renames (the `.await` lives in the source) |
+//! | `calls("{}_async", ...)` | ✓ | — | pattern entry: renames every matching call name (`read_async` → `read`) |
 //! | `flavor = async_fn \| async_trait` | — | ✓ | async trait/impl emission style |
 //! | `send = true \| false \| cfg(...)` | — | ✓ | with `async_trait`: `Send`-ness of the emission (default `Send`) |
 //!
 //! `types` and `calls` are sync-only because they describe how to rewrite the async-written source; the async expansion uses it verbatim.
+//!
+//! `types(...)` and `calls(...)` entries may mix exact `A => B` mappings with string-literal pattern entries.
+//! Patterns use the same syntax as `fn_pattern`/`type_pattern`: `"Async{}"` is sugar for `"Async{} => {}"`, and the arrow form (`"create_async_{} => create_{}"`) maps the `{}` stem into a different sync spelling.
+//! A pattern matches whole identifiers only: a bare type name, the leading segment of a path (`AsyncStore::new`), a call name, or the corresponding doc-text mentions.
+//! Exact entries always win over patterns; among patterns, the first match wins.
 //!
 //! # Item coverage
 //!

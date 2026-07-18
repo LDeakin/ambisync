@@ -11,4 +11,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `#[ambisync]`: emit an async and a mechanically derived sync variant of an async-written `fn`, `trait`, `impl`, `struct`, or `enum`.
 - `#[ambisync::test]`: emit a sync `#[test]` and a cfg-gated async test from one async-written test fn.
 - `#[ambisync::scope]` / `ambisync::scoped!`: shared defaults for inline and file modules.
+- Pattern entries in `sync(types(...))` / `sync(calls(...))`: string-literal entries such as `types("Async{}")` and `calls("{}_async", "create_async_{} => create_{}")` rename every matching type/call identifier, with exact `A => B` entries taking precedence.
 - Marker macros `alt!`, `sync_only!`, `async_only!` and the `#[sync_only]` / `#[async_only]` / `#[sync_attr(...)]` / `#[async_attr(...)]` helper attributes for divergent code.

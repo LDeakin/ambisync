@@ -3,7 +3,6 @@
 use proc_macro2::TokenStream;
 use syn::parse::discouraged::Speculative;
 use syn::parse::{Parse, ParseStream};
-use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 use syn::{
     Attribute, Ident, Item, ItemEnum, ItemImpl, ItemStruct, ItemTrait, LitBool, LitStr, Signature,
@@ -42,6 +41,12 @@ pub struct TypeSubst {
 impl Parse for TypeSubst {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let async_: Type = input.parse()?;
+        if input.peek(syn::token::Brace) {
+            return Err(input.error(
+                "`{}` placeholders are not valid in type position; write pattern entries as \
+                 string literals, e.g. `types(\"Async{}\")` or `types(\"Async{} => Sync{}\")`",
+            ));
+        }
         input.parse::<Token![=>]>()?;
         let sync: Type = input.parse()?;
         Ok(Self { async_, sync })
@@ -90,18 +95,21 @@ impl RenamePattern {
 
     /// The sync ident derived from an async (source) ident, or `None` when the ident does not match the pattern's async side.
     pub fn sync_name(&self, async_ident: &Ident) -> syn::Result<Option<Ident>> {
-        let name = async_ident.to_string();
-        let Some(stem) = name
-            .strip_prefix(&self.async_prefix)
-            .and_then(|name| name.strip_suffix(&self.async_suffix))
-        else {
+        let Some(sync) = self.sync_name_str(&async_ident.to_string()) else {
             return Ok(None);
         };
-        if stem.is_empty() {
-            return Ok(None);
-        }
-        let sync = format!("{}{stem}{}", self.sync_prefix, self.sync_suffix);
         ident_from_str(&sync, async_ident.span()).map(Some)
+    }
+
+    /// String-level pattern application, used by the substitution tables where names may live inside macro tokens or doc text.
+    pub fn sync_name_str(&self, name: &str) -> Option<String> {
+        let stem = name
+            .strip_prefix(&self.async_prefix)?
+            .strip_suffix(&self.async_suffix)?;
+        if stem.is_empty() {
+            return None;
+        }
+        Some(format!("{}{stem}{}", self.sync_prefix, self.sync_suffix))
     }
 
     pub fn value(&self) -> String {
@@ -193,7 +201,19 @@ impl Declaration {
 
 impl Parse for CallSwap {
     fn parse(input: ParseStream) -> syn::Result<Self> {
+        if input.peek(syn::token::Brace) {
+            return Err(input.error(
+                "`{}` placeholders are not valid in name position; write pattern entries as \
+                 string literals, e.g. `calls(\"{}_async\")` or `calls(\"create_async_{} => create_{}\")`",
+            ));
+        }
         let async_: Ident = input.parse()?;
+        if input.peek(syn::token::Brace) {
+            return Err(input.error(
+                "`{}` placeholders are not valid in name position; write pattern entries as \
+                 string literals, e.g. `calls(\"async_{}\")` or `calls(\"async_{} => sync_{}\")`",
+            ));
+        }
         input.parse::<Token![=>]>()?;
         let sync: Ident = input.parse()?;
         if input.peek(Token![.]) {
@@ -226,8 +246,12 @@ pub struct SyncConfig {
     pub declaration: Option<Declaration>,
     /// Async-to-sync type substitutions.
     pub types: Vec<TypeSubst>,
+    /// Pattern entries from `types("Async{}")`: applied to bare type idents the exact entries do not cover.
+    pub type_patterns: Vec<RenamePattern>,
     /// Async-to-sync call substitutions.
     pub calls: Vec<CallSwap>,
+    /// Pattern entries from `calls("{}_async")`: applied to call names the exact entries do not cover.
+    pub call_patterns: Vec<RenamePattern>,
 }
 
 #[derive(Clone, Default)]
@@ -331,14 +355,12 @@ fn parse_sync_config(input: ParseStream, cfg: &mut SyncConfig) -> syn::Result<()
             "types" => {
                 let content;
                 parenthesized!(content in input);
-                let entries = Punctuated::<TypeSubst, Token![,]>::parse_terminated(&content)?;
-                cfg.types.extend(entries);
+                parse_subst_entries(&content, &mut cfg.types, &mut cfg.type_patterns)?;
             }
             "calls" => {
                 let content;
                 parenthesized!(content in input);
-                let entries = Punctuated::<CallSwap, Token![,]>::parse_terminated(&content)?;
-                cfg.calls.extend(entries);
+                parse_subst_entries(&content, &mut cfg.calls, &mut cfg.call_patterns)?;
             }
             _ => {
                 return Err(syn::Error::new(
@@ -394,6 +416,24 @@ fn parse_async_config(input: ParseStream, cfg: &mut AsyncConfig) -> syn::Result<
                      `test_attr`, `declaration`, `flavor` or `send`",
                 ));
             }
+        }
+        parse_optional_comma(input)?;
+    }
+    Ok(())
+}
+
+/// Parse the entries of `types(...)` / `calls(...)`: exact `A => B` mappings, plus string-literal
+/// pattern entries (`"Async{}"`, `"{}_async => {}"`) that match any name with the given affixes.
+fn parse_subst_entries<T: Parse>(
+    input: ParseStream,
+    exact: &mut Vec<T>,
+    patterns: &mut Vec<RenamePattern>,
+) -> syn::Result<()> {
+    while !input.is_empty() {
+        if input.peek(LitStr) {
+            patterns.push(RenamePattern::parse(input.parse()?)?);
+        } else {
+            exact.push(input.parse()?);
         }
         parse_optional_comma(input)?;
     }
@@ -630,7 +670,13 @@ impl Config {
         merge_option(&mut self.sync.declaration, &defaults.sync.declaration);
         self.sync.attrs.extend(defaults.sync.attrs.iter().cloned());
         self.sync.types.extend(defaults.sync.types.iter().cloned());
+        self.sync
+            .type_patterns
+            .extend(defaults.sync.type_patterns.iter().cloned());
         self.sync.calls.extend(defaults.sync.calls.iter().cloned());
+        self.sync
+            .call_patterns
+            .extend(defaults.sync.call_patterns.iter().cloned());
         merge_option(&mut self.async_.gate, &defaults.async_.gate);
         merge_option(&mut self.async_.name, &defaults.async_.name);
         merge_option(&mut self.async_.doc, &defaults.async_.doc);
@@ -762,8 +808,9 @@ fn ident_from_str(value: &str, span: proc_macro2::Span) -> syn::Result<Ident> {
 
 #[cfg(test)]
 mod tests {
-    use super::RenamePattern;
+    use super::{Config, RenamePattern};
     use proc_macro2::Span;
+    use quote::quote;
     use syn::{Ident, LitStr};
 
     fn sync_name(pattern: &str, async_name: &str) -> Option<String> {
@@ -800,6 +847,34 @@ mod tests {
             Some("SyncClient".into())
         );
         assert_eq!(sync_name("async_{} => sync_{}", "other"), None);
+    }
+
+    #[test]
+    fn bare_placeholder_entries_suggest_string_patterns() {
+        for args in [
+            quote!(sync(types(Async{} => {}))),
+            quote!(sync(calls({}_async => {}))),
+            quote!(sync(calls(create_async_{} => create_{}))),
+        ] {
+            let err = Config::parse_args(args.clone())
+                .err()
+                .expect("bare `{}` placeholders should be rejected")
+                .to_string();
+            assert!(err.contains("string literals"), "`{args}`: {err}");
+        }
+    }
+
+    #[test]
+    fn pattern_entries_parse_alongside_exact_entries() {
+        let cfg = Config::parse_args(quote!(sync(
+            types("Async{}", AsyncStore => Store),
+            calls("{}_async", "create_async_{} => create_{}", async_helper => helper),
+        )))
+        .expect("valid config");
+        assert_eq!(cfg.sync.types.len(), 1);
+        assert_eq!(cfg.sync.type_patterns.len(), 1);
+        assert_eq!(cfg.sync.calls.len(), 1);
+        assert_eq!(cfg.sync.call_patterns.len(), 2);
     }
 
     #[test]
