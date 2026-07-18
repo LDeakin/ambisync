@@ -235,6 +235,27 @@ impl VisitMut for Rewriter<'_> {
                 let base = (*awaited.base).clone();
                 *expr = base;
             }
+
+            // An immediately-awaited async block is not equivalent to a plain
+            // block when it contains `return` or uses `move`. A called closure
+            // preserves both the async block's control-flow boundary and its
+            // capture mode while making the result synchronous.
+            if let Expr::Async(async_expr) = expr {
+                let span = async_expr.span();
+                let attrs = std::mem::take(&mut async_expr.attrs);
+                let capture = async_expr.capture;
+                let block = async_expr.block.clone();
+                *expr = syn::parse_quote_spanned!(span=> #(#attrs)* (#capture || #block)());
+                self.visit_expr_mut(expr);
+                return;
+            }
+
+            if let Expr::Closure(closure) = expr {
+                closure.asyncness = None;
+            }
+        }
+
+        if !self.table.is_empty() {
             match expr {
                 Expr::MethodCall(call) => {
                     if let Some(to) = self.table.lookup_call(&call.method) {
@@ -265,9 +286,7 @@ impl VisitMut for Rewriter<'_> {
     }
 
     fn visit_type_mut(&mut self, ty: &mut syn::Type) {
-        if self.is_sync()
-            && let Some(replacement) = self.table.subst_type(ty)
-        {
+        if let Some(replacement) = self.table.subst_type(ty) {
             *ty = replacement;
             return;
         }
@@ -275,14 +294,12 @@ impl VisitMut for Rewriter<'_> {
     }
 
     fn visit_trait_bound_mut(&mut self, bound: &mut TraitBound) {
-        if self.is_sync() {
-            self.table.subst_path(&mut bound.path, false);
-        }
+        self.table.subst_path(&mut bound.path, false);
         visit_mut::visit_trait_bound_mut(self, bound);
     }
 
     fn visit_pat_mut(&mut self, pat: &mut Pat) {
-        if self.is_sync() {
+        if !self.table.is_empty() {
             match pat {
                 Pat::Struct(p) if p.qself.is_none() => {
                     self.table.subst_path(&mut p.path, true);
@@ -301,13 +318,16 @@ impl VisitMut for Rewriter<'_> {
 
     fn visit_macro_mut(&mut self, mac: &mut Macro) {
         // Markers are resolved at expr/stmt level before recursion reaches
-        // here. The async variant keeps macro bodies verbatim; the sync
-        // variant gets best-effort token rewriting.
+        // here. Only the sync variant strips `.await`; both variants may need
+        // item-name rewrites when an exact output name was configured.
+        let mut tokens = mac.tokens.clone();
         if self.is_sync() {
-            mac.tokens = self
-                .table
-                .rewrite_macro_tokens(strip_awaits_in_tokens(mac.tokens.clone()));
+            tokens = strip_awaits_in_tokens(tokens);
         }
+        if !self.table.is_empty() {
+            tokens = self.table.rewrite_macro_tokens(tokens);
+        }
+        mac.tokens = tokens;
         visit_mut::visit_macro_mut(self, mac);
     }
 }

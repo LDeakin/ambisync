@@ -34,7 +34,7 @@ async fn async_make_store() -> AsyncStore {
 
 #[dual(
     async(feature = "async"),
-    rename = "async_{}",
+    sync(pattern = "async_{}"),
     types(AsyncStore => Store),
     calls(async_make_store => make_store),
 )]
@@ -67,7 +67,11 @@ impl AsyncStore {
     }
 }
 
-#[dual(async(feature = "async"), rename = "async_{}", types(AsyncStore => Store))]
+#[dual(
+    sync(pattern = "async_{}"),
+    async(feature = "async"),
+    types(AsyncStore => Store),
+)]
 async fn async_build_and_read() -> u32 {
     let a = AsyncStore::build();
     let b = AsyncStore { value: a.value };
@@ -86,7 +90,7 @@ async fn async_expr_paths_untouched() {
 }
 
 // Markers: alt!, sync_only!, async_only!.
-#[dual(async(feature = "async"), rename = "async_{}")]
+#[dual(sync(pattern = "async_{}"), async(feature = "async"))]
 async fn async_which_variant() -> String {
     let mut parts: Vec<&str> = Vec::new();
     unasync::sync_only! {
@@ -116,7 +120,7 @@ async fn async_markers_resolve() {
 // variant keeps macro bodies verbatim.
 #[dual(
     async(feature = "async"),
-    rename = "async_{}",
+    sync(pattern = "async_{}"),
     types(AsyncStore => Store),
     calls(async_make_store => make_store),
 )]
@@ -136,7 +140,7 @@ async fn async_macro_tokens_verbatim() {
 }
 
 // Both variants independently feature-gated.
-#[dual(sync(feature = "sync"), async(feature = "async"), rename = "async_{}")]
+#[dual(sync(feature = "sync", pattern = "async_{}"), async(feature = "async"))]
 async fn async_gated_both() -> u32 {
     11
 }
@@ -153,31 +157,19 @@ async fn async_gate_applies() {
     assert_eq!(async_gated_both().await, 11);
 }
 
-// skip_sync + keep_self: async-only emission under the source name.
-#[dual(async(feature = "async"), skip_sync, keep_self)]
-async fn only_async_value() -> u32 {
-    3
-}
-
-#[cfg(feature = "async")]
-#[tokio::test]
-async fn skip_sync_keeps_source_name() {
-    assert_eq!(only_async_value().await, 3);
-}
-
-// skip_async: derive the sync variant only (the async source is dropped).
-#[dual(skip_async, rename = "{}_async")]
+// Suffix-style patterns are supported as well as prefixes.
+#[dual(sync(pattern = "{}_async"), async(feature = "async"))]
 async fn suffix_styled_async() -> u32 {
     7
 }
 
 #[test]
-fn skip_async_and_suffix_pattern() {
+fn suffix_pattern() {
     assert_eq!(suffix_styled(), 7);
 }
 
-// The packbits-style case from PLAN.md §3.2: a generic-aware whole-type
-// substitution (`&Arc<dyn Trait>`), impossible with single-ident renames.
+// A generic-aware whole-type substitution (`&Arc<dyn Trait>`), impossible
+// with single-ident renames.
 use std::sync::Arc;
 
 pub trait Decode {
@@ -201,7 +193,7 @@ impl AsyncDecode for Dec {
 
 #[dual(
     async(feature = "async"),
-    rename = "async_{}",
+    sync(pattern = "async_{}"),
     types(&Arc<dyn AsyncDecode> => &Arc<dyn Decode>),
     calls(async_make_store => make_store),
 )]
@@ -224,7 +216,7 @@ async fn async_trait_object_param_verbatim() {
 }
 
 // sync_attr/async_attr passthrough.
-#[dual(async(feature = "async"), rename = "async_{}")]
+#[dual(sync(pattern = "async_{}"), async(feature = "async"))]
 #[sync_attr(allow(clippy::unused_unit))]
 #[async_attr(allow(clippy::unused_async))]
 async fn async_passthrough() -> u32 {
@@ -234,4 +226,54 @@ async fn async_passthrough() -> u32 {
 #[test]
 fn passthrough_compiles() {
     assert_eq!(passthrough(), 4);
+}
+
+// Async blocks and closures become synchronous closure calls/closures. The
+// `return` in the block must stay scoped to that block rather than returning
+// from the generated sync function.
+#[dual(sync(name = "nested_async_forms"), async(feature = "async"))]
+async fn async_nested_async_forms(seed: u32) -> u32 {
+    let from_block = async move {
+        if seed == 0 {
+            return 4;
+        }
+        seed + 1
+    }
+    .await;
+    let increment = async move |value: u32| value + 1;
+    from_block + increment(seed).await
+}
+
+#[test]
+fn sync_nested_async_forms_are_derived() {
+    assert_eq!(nested_async_forms(0), 5);
+    assert_eq!(nested_async_forms(2), 6);
+}
+
+#[cfg(feature = "async")]
+#[tokio::test]
+async fn async_nested_forms_remain_async() {
+    assert_eq!(async_nested_async_forms(0).await, 5);
+    assert_eq!(async_nested_async_forms(2).await, 6);
+}
+
+// Exact names allow the source to use a neutral internal name while both
+// public output names remain explicit.
+#[dual(
+    sync(name = "explicit_sync_name"),
+    async(feature = "async", name = "explicit_async_name")
+)]
+async fn internal_neutral_name() -> u32 {
+    12
+}
+
+#[test]
+fn exact_sync_name_is_used() {
+    assert_eq!(explicit_sync_name(), 12);
+}
+
+#[cfg(feature = "async")]
+#[tokio::test]
+async fn exact_async_name_is_used() {
+    assert_eq!(explicit_async_name().await, 12);
 }

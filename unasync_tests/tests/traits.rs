@@ -23,8 +23,7 @@ impl AsyncConn {
 
 #[dual(
     async(feature = "async"),
-    rename = "async_{}",
-    rename_types = "Async{}",
+    sync(pattern = "async_{}", type_pattern = "Async{}"),
     types(AsyncConn => Conn),
 )]
 pub trait AsyncFetch {
@@ -49,7 +48,7 @@ pub struct AsyncClient {
 
 #[dual(
     async(feature = "async"),
-    rename = "async_{}",
+    sync(pattern = "async_{}"),
     types(AsyncFetch => Fetch, AsyncClient => Client, AsyncConn => Conn),
 )]
 impl AsyncFetch for AsyncClient {
@@ -73,12 +72,10 @@ async fn async_trait_with_default_bodies() {
     assert_eq!(client.async_fetch_plus(5).await, 25);
 }
 
-// flavor = async_trait: dyn-safe async traits via #[async_trait::async_trait].
+// async(flavor = async_trait): dyn-safe traits via #[async_trait::async_trait].
 #[dual(
-    async(feature = "async"),
-    rename = "async_{}",
-    rename_types = "Async{}",
-    flavor = async_trait,
+    sync(pattern = "async_{}", type_pattern = "Async{}"),
+    async(feature = "async", flavor = async_trait),
 )]
 pub trait AsyncValue {
     async fn async_value(&self) -> u32;
@@ -87,9 +84,8 @@ pub trait AsyncValue {
 pub struct Fixed;
 
 #[dual(
-    async(feature = "async"),
-    rename = "async_{}",
-    flavor = async_trait,
+    sync(pattern = "async_{}"),
+    async(feature = "async", flavor = async_trait),
     types(AsyncValue => Value),
 )]
 impl AsyncValue for Fixed {
@@ -109,4 +105,42 @@ fn sync_flavored_trait_object() {
 async fn async_trait_flavor_object() {
     let obj: Box<dyn AsyncValue> = Box::new(Fixed);
     assert_eq!(obj.async_value().await, 42);
+}
+
+// Generic trait paths in trait-impl targets retain/substitute their generic
+// arguments rather than being limited to bare identifiers.
+pub struct GenericHolder<T>(T);
+pub struct AsyncGenericHolder<T>(T);
+
+#[dual(
+    sync(name = "GenericTake", pattern = "async_{}"),
+    async(feature = "async")
+)]
+pub trait AsyncGenericTake<T> {
+    async fn async_take(&self) -> T;
+}
+
+#[dual(
+    sync(pattern = "async_{}"),
+    async(feature = "async"),
+    types(
+        AsyncGenericTake<T> => GenericTake<T>,
+        AsyncGenericHolder<T> => GenericHolder<T>,
+    ),
+)]
+impl<T: Copy> AsyncGenericTake<T> for AsyncGenericHolder<T> {
+    async fn async_take(&self) -> T {
+        self.0
+    }
+}
+
+#[test]
+fn sync_generic_trait_impl_target_is_substituted() {
+    assert_eq!(GenericHolder(7_u32).take(), 7);
+}
+
+#[cfg(feature = "async")]
+#[tokio::test]
+async fn async_generic_trait_impl_is_unchanged() {
+    assert_eq!(AsyncGenericHolder(8_u32).async_take().await, 8);
 }

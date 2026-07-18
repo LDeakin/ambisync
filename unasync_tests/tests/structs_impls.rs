@@ -20,14 +20,18 @@ impl AsyncConn {
     }
 }
 
-#[dual(async(feature = "async"), rename_types = "Async{}", types(AsyncConn => Conn))]
+#[dual(
+    sync(type_pattern = "Async{}"),
+    async(feature = "async"),
+    types(AsyncConn => Conn),
+)]
 pub struct AsyncClient {
     conn: AsyncConn,
 }
 
 #[dual(
     async(feature = "async"),
-    rename = "async_{}",
+    sync(pattern = "async_{}"),
     types(AsyncClient => Client, AsyncConn => Conn),
 )]
 #[allow(clippy::new_without_default)]
@@ -63,7 +67,7 @@ async fn async_struct_and_impl() {
 }
 
 // Per-variant struct fields.
-#[dual(async(feature = "async"), rename_types = "Async{}")]
+#[dual(sync(type_pattern = "Async{}"), async(feature = "async"))]
 pub struct AsyncOptions {
     pub common: u32,
     #[sync_only]
@@ -92,7 +96,7 @@ async fn async_only_fields_kept() {
 }
 
 // Per-variant enum variants (and per-variant fields inside variants).
-#[dual(async(feature = "async"), rename_types = "Async{}")]
+#[dual(sync(type_pattern = "Async{}"), async(feature = "async"))]
 pub enum AsyncMode {
     Shared,
     #[sync_only]
@@ -130,7 +134,7 @@ pub struct AsyncWidget;
 
 #[dual(
     async(feature = "async"),
-    rename = "async_{}",
+    sync(pattern = "async_{}"),
     types(AsyncWidget => Widget),
 )]
 impl AsyncWidget {
@@ -155,4 +159,52 @@ fn impl_member_gating_sync() {
 async fn impl_member_gating_async() {
     assert_eq!(AsyncWidget.size(), 1);
     assert_eq!(AsyncWidget.concurrency_hint(), 16);
+}
+
+// Exact output names rewrite self-references in both generated variants.
+#[dual(sync(name = "Node"), async(feature = "async", name = "AsyncNode"))]
+pub struct InternalNode {
+    next: Option<Box<InternalNode>>,
+}
+
+#[test]
+fn exact_struct_name_rewrites_sync_self_references() {
+    let node = Node {
+        next: Some(Box::new(Node { next: None })),
+    };
+    assert!(node.next.is_some());
+}
+
+#[cfg(feature = "async")]
+#[tokio::test]
+async fn exact_struct_name_rewrites_async_self_references() {
+    let node = AsyncNode {
+        next: Some(Box::new(AsyncNode { next: None })),
+    };
+    assert!(node.next.is_some());
+}
+
+pub struct SameNamed;
+pub struct AsyncSameNamed;
+
+#[dual(
+    sync(pattern = "{}"),
+    async(feature = "async"),
+    types(AsyncSameNamed => SameNamed),
+)]
+impl AsyncSameNamed {
+    pub async fn value(&self) -> u32 {
+        13
+    }
+}
+
+#[test]
+fn identity_pattern_supports_same_named_methods() {
+    assert_eq!(SameNamed.value(), 13);
+}
+
+#[cfg(feature = "async")]
+#[tokio::test]
+async fn identity_pattern_keeps_async_method_name() {
+    assert_eq!(AsyncSameNamed.value().await, 13);
 }

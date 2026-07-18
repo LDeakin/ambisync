@@ -1,20 +1,22 @@
 //! Write sync/async-generic Rust: author the async form once, derive the sync
 //! variant mechanically.
 //!
-//! The annotated item is written **entirely as the async variant** — async
-//! names, async types, `.await` — so the source is real, compilable async
-//! code. The [`macro@dual`] attribute then emits:
+//! The annotated item is written in **async form** — async types, async bodies,
+//! `.await` — so the source is real, compilable async code. Its identifier
+//! normally uses the async spelling too, though exact sync and async output
+//! names may be configured. The [`macro@dual`] attribute then emits:
 //!
 //! - the **async variant**: the source as written (helper attributes removed,
 //!   markers resolved), optionally gated with `async(feature = "...")`;
 //! - the **sync variant**: `async` removed, every `.await` stripped, names
-//!   mapped back through the explicit `rename`/`rename_types` patterns and the
-//!   `types(...)`/`calls(...)` substitution tables, optionally gated with
+//!   selected by `sync(name = "...")` or the scoped naming patterns, and the
+//!   `types(...)`/`calls(...)` substitutions applied, optionally gated with
 //!   `sync(feature = "...")`.
 //!
-//! Renaming is **always explicit** — `unasync` does not assume an `async_`
-//! prefix or any other convention. Give a pattern (`rename = "async_{}"`,
-//! `rename = "{}_async"`, `rename_types = "Async{}"`, ...) or `keep_self`.
+//! Naming is **always explicit** — `unasync` does not assume an `async_`
+//! prefix or any other convention. Give an exact sync item name, or use
+//! `sync(pattern = "async_{}")` / `sync(type_pattern = "Async{}")` where a
+//! convention needs to cover methods or multiple scoped items.
 //!
 //! ```
 //! struct Store(u32);
@@ -22,7 +24,7 @@
 //! impl Store { fn get(&self) -> u32 { self.0 } }
 //! impl AsyncStore { async fn get(&self) -> u32 { self.0 } }
 //!
-//! #[unasync::dual(rename = "async_{}", types(AsyncStore => Store))]
+//! #[unasync::dual(sync(name = "read"), types(AsyncStore => Store))]
 //! async fn async_read(store: &AsyncStore) -> u32 {
 //!     store.get().await
 //! }
@@ -36,18 +38,16 @@
 //!
 //! | Option | Effect |
 //! |---|---|
-//! | `sync(feature = "sync")` | gate the sync variant behind `#[cfg(feature = "sync")]` |
-//! | `async(feature = "async")` | gate the async variant behind `#[cfg(feature = "async")]` |
-//! | `skip_sync` / `skip_async` | emit only one variant |
-//! | `keep_self` | no renaming: the sync variant keeps the source names |
-//! | `rename = "async_{}"` | fn/method pattern the async names follow; `{}` is the sync name |
-//! | `rename_types = "Async{}"` | type/trait pattern, same rules |
+//! | `sync(feature = "sync", name = "read")` | configure the sync gate and exact item name |
+//! | `sync(pattern = "async_{}")` | derive sync fn/method names; `{}` captures the sync name |
+//! | `sync(type_pattern = "Async{}")` | derive sync type/trait names |
+//! | `async(feature = "async", name = "async_read")` | configure the async gate and optional exact item name |
 //! | `types(A => B, ...)` | async spelling → sync spelling type substitutions |
 //! | `calls(f => g, ...)` | async call name → sync call name (the `.await` is written in the source) |
-//! | `async_doc = "..."` | extra doc text on the async item |
-//! | `async_attr = #[...]` | runtime attribute for [`macro@test`] (default `#[tokio::test]`) |
-//! | `flavor = async_fn \| async_trait` | async trait/impl emission style |
-//! | `wasm_send` | with `async_trait`: native `Send` / wasm `?Send` cfg pairing |
+//! | `async(doc = "...")` | extra doc text on the async item |
+//! | `async(test_attr = #[...])` | runtime attribute for [`macro@test`] (default `#[tokio::test]`) |
+//! | `async(flavor = async_fn \| async_trait)` | async trait/impl emission style |
+//! | `async(wasm_send)` | with `async_trait`: native `Send` / wasm `?Send` cfg pairing |
 //!
 //! Both variants can be feature-gated, either one, or neither. The attribute
 //! is **never wrapped in `cfg_attr`** — it always runs and emits the cfg gates
@@ -70,7 +70,7 @@
 //! one expansion with the `#[sync_only]` / `#[async_only]` attributes:
 //!
 //! ```ignore
-//! #[unasync::dual(rename_types = "Async{}")]
+//! #[unasync::dual(sync(name = "Options"))]
 //! pub struct AsyncOptions {
 //!     pub common: u32,
 //!     #[sync_only]
@@ -86,7 +86,10 @@
 //! async-written test fn:
 //!
 //! ```ignore
-//! #[unasync::test(async(feature = "async"), rename = "async_{}", async_attr = #[tokio::test])]
+//! #[unasync::test(
+//!     sync(name = "roundtrip"),
+//!     async(feature = "async", test_attr = #[tokio::test]),
+//! )]
 //! async fn async_roundtrip() { /* written once, with .await */ }
 //! // → #[test] fn roundtrip()  +  #[cfg(feature = "async")] #[tokio::test] async fn async_roundtrip()
 //! ```

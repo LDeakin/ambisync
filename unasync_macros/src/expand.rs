@@ -6,10 +6,11 @@ use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
 use syn::visit_mut::VisitMut;
 use syn::{
-    Attribute, Fields, Ident, ImplItem, Item, ItemMod, LitStr, Meta, TraitItem, Type, parse_quote,
+    AttrStyle, Attribute, Fields, Ident, ImplItem, Item, ItemMod, LitStr, Meta, TraitItem, Type,
+    parse_quote,
 };
 
-use crate::config::{Config, Flavor, sync_ident};
+use crate::config::{Config, Flavor, async_ident, sync_ident};
 use crate::rewrite::{Rewriter, Variant};
 use crate::subst::SubstTable;
 
@@ -33,6 +34,7 @@ pub fn test(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> {
 
 pub fn scope(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> {
     let defaults = Config::parse_args(args)?;
+    validate_scope_defaults(&defaults)?;
     let module: ItemMod = syn::parse2(input)?;
     let Some((_, items)) = module.content else {
         return Err(syn::Error::new_spanned(
@@ -42,13 +44,17 @@ pub fn scope(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> 
         ));
     };
     let inner = process_items(items, &defaults)?;
-    let attrs = &module.attrs;
+    let (outer_attrs, inner_attrs): (Vec<_>, Vec<_>) = module
+        .attrs
+        .into_iter()
+        .partition(|attr| matches!(attr.style, AttrStyle::Outer));
     let vis = &module.vis;
     let unsafety = &module.unsafety;
     let ident = &module.ident;
     Ok(quote! {
-        #(#attrs)*
+        #(#outer_attrs)*
         #vis #unsafety mod #ident {
+            #(#inner_attrs)*
             #inner
         }
     })
@@ -71,7 +77,25 @@ pub fn content(input: TokenStream) -> syn::Result<TokenStream> {
             ));
         }
     }
+    validate_scope_defaults(&defaults)?;
     process_items(file.items, &defaults)
+}
+
+fn validate_scope_defaults(defaults: &Config) -> syn::Result<()> {
+    if defaults.sync.name.is_some() || defaults.async_.name.is_some() {
+        let name = defaults
+            .sync
+            .name
+            .as_ref()
+            .or(defaults.async_.name.as_ref())
+            .expect("checked above");
+        return Err(syn::Error::new(
+            name.span(),
+            "exact variant names are item-specific and cannot be scope/content defaults; \
+             put `sync(name = ...)` / `async(name = ...)` on the item",
+        ));
+    }
+    Ok(())
 }
 
 /// Which unasync attribute an item inside `scope`/`content!` carries.
@@ -128,19 +152,16 @@ fn process_items(items: Vec<Item>, defaults: &Config) -> syn::Result<TokenStream
 }
 
 fn expand_item(item: &Item, cfg: &Config, is_test: bool) -> syn::Result<TokenStream> {
-    if cfg.skip_sync && cfg.skip_async {
+    cfg.validate_effective()?;
+    if !is_test && cfg.async_.test_attr.is_some() {
         return Err(syn::Error::new_spanned(
             item,
-            "`skip_sync` together with `skip_async` would emit nothing",
+            "`async(test_attr = #[...])` is only valid on `#[unasync::test]`",
         ));
     }
     let mut out = TokenStream::new();
-    if !cfg.skip_sync {
-        out.extend(emit_variant(item, cfg, Variant::Sync, is_test)?);
-    }
-    if !cfg.skip_async {
-        out.extend(emit_variant(item, cfg, Variant::Async, is_test)?);
-    }
+    out.extend(emit_variant(item, cfg, Variant::Sync, is_test)?);
+    out.extend(emit_variant(item, cfg, Variant::Async, is_test)?);
     Ok(out)
 }
 
@@ -151,33 +172,49 @@ fn emit_variant(
     is_test: bool,
 ) -> syn::Result<TokenStream> {
     let mut item = source.clone();
-    // Built for both passes: the sync pass applies it via the rewriter, the
-    // async pass only consults it to compute sync names for doc links.
-    let mut table = SubstTable::build(cfg);
+    let mut table = if variant.is_sync() {
+        SubstTable::build(cfg)
+    } else {
+        SubstTable::default()
+    };
 
     match &mut item {
         Item::Fn(func) => {
             passthrough_attrs(&mut func.attrs, variant)?;
+            if func.sig.asyncness.is_none() {
+                return Err(syn::Error::new_spanned(
+                    &func.sig,
+                    "unasync functions must be written in async form",
+                ));
+            }
+            let source_name = func.sig.ident.clone();
+            let async_name = async_ident(cfg.async_.name.as_ref(), &source_name);
+            let sync_name = sync_ident(
+                cfg.sync.name.as_ref(),
+                cfg.sync.pattern.as_ref(),
+                "pattern",
+                &async_name,
+            )?;
+            ensure_distinct(&sync_name, &async_name)?;
             if variant.is_sync() {
                 func.sig.asyncness = None;
-                if !cfg.keep_self {
-                    func.sig.ident = sync_ident(&cfg.rename, "rename", &func.sig.ident)?;
-                }
+                table.add_item_call(&source_name, &sync_name);
+                func.sig.ident = sync_name;
                 if is_test {
                     func.attrs.push(parse_quote!(#[test]));
                 }
             } else {
-                if !cfg.keep_self {
-                    let sync_name = sync_ident(&cfg.rename, "rename", &func.sig.ident)?;
-                    stub_docs(
-                        &mut func.attrs,
-                        &sync_name.to_string(),
-                        cfg.async_doc.as_ref(),
-                    );
-                }
+                table.add_item_call(&source_name, &async_name);
+                func.sig.ident = async_name;
+                stub_docs(
+                    &mut func.attrs,
+                    &sync_name.to_string(),
+                    cfg.async_.doc.as_ref(),
+                );
                 if is_test {
                     let attrs = cfg
-                        .async_attr
+                        .async_
+                        .test_attr
                         .clone()
                         .unwrap_or_else(|| vec![parse_quote!(#[tokio::test])]);
                     func.attrs.extend(attrs);
@@ -187,11 +224,21 @@ fn emit_variant(
         Item::Trait(item_trait) => {
             passthrough_attrs(&mut item_trait.attrs, variant)?;
             filter_trait_items(&mut item_trait.items, variant);
-            let sync_trait_ident = if cfg.keep_self {
-                item_trait.ident.clone()
+            let source_trait_ident = item_trait.ident.clone();
+            let async_trait_ident = async_ident(cfg.async_.name.as_ref(), &source_trait_ident);
+            let sync_trait_ident = sync_ident(
+                cfg.sync.name.as_ref(),
+                cfg.sync.type_pattern.as_ref(),
+                "type_pattern",
+                &async_trait_ident,
+            )?;
+            ensure_distinct(&sync_trait_ident, &async_trait_ident)?;
+            let output_trait_ident = if variant.is_sync() {
+                &sync_trait_ident
             } else {
-                sync_ident(&cfg.rename_types, "rename_types", &item_trait.ident)?
+                &async_trait_ident
             };
+            table.add_item_type(&source_trait_ident, output_trait_ident);
             let mut has_async = false;
             for trait_item in &mut item_trait.items {
                 if let TraitItem::Fn(method) = trait_item {
@@ -202,13 +249,21 @@ fn emit_variant(
                     has_async = true;
                     if variant.is_sync() {
                         method.sig.asyncness = None;
-                        if !cfg.keep_self {
-                            let sync_name = sync_ident(&cfg.rename, "rename", &method.sig.ident)?;
-                            table.add_auto_call(&method.sig.ident, &sync_name);
-                            method.sig.ident = sync_name;
-                        }
-                    } else if !cfg.keep_self {
-                        let sync_name = sync_ident(&cfg.rename, "rename", &method.sig.ident)?;
+                        let sync_name = sync_ident(
+                            None,
+                            cfg.sync.pattern.as_ref(),
+                            "pattern",
+                            &method.sig.ident,
+                        )?;
+                        table.add_auto_call(&method.sig.ident, &sync_name);
+                        method.sig.ident = sync_name;
+                    } else {
+                        let sync_name = sync_ident(
+                            None,
+                            cfg.sync.pattern.as_ref(),
+                            "pattern",
+                            &method.sig.ident,
+                        )?;
                         stub_docs(
                             &mut method.attrs,
                             &format!("{sync_trait_ident}::{sync_name}"),
@@ -220,14 +275,13 @@ fn emit_variant(
             if variant.is_sync() {
                 item_trait.ident = sync_trait_ident;
             } else {
-                if !cfg.keep_self {
-                    stub_docs(
-                        &mut item_trait.attrs,
-                        &sync_trait_ident.to_string(),
-                        cfg.async_doc.as_ref(),
-                    );
-                }
-                match cfg.flavor {
+                item_trait.ident = async_trait_ident;
+                stub_docs(
+                    &mut item_trait.attrs,
+                    &sync_trait_ident.to_string(),
+                    cfg.async_.doc.as_ref(),
+                );
+                match cfg.flavor() {
                     Flavor::AsyncFn => {
                         if has_async {
                             item_trait
@@ -240,10 +294,21 @@ fn emit_variant(
             }
         }
         Item::Impl(item_impl) => {
+            if cfg.sync.name.is_some() || cfg.async_.name.is_some() {
+                return Err(syn::Error::new_spanned(
+                    item_impl,
+                    "`sync(name = ...)` / `async(name = ...)` cannot name an impl block; \
+                     use `types(...)` for its trait/self types and `sync(pattern = ...)` for methods",
+                ));
+            }
             passthrough_attrs(&mut item_impl.attrs, variant)?;
             filter_impl_items(&mut item_impl.items, variant);
             let inherent = item_impl.trait_.is_none();
-            let sync_self_name = sync_self_name(&table, &item_impl.self_ty);
+            let sync_self_name = if variant.is_sync() {
+                sync_self_name(&table, &item_impl.self_ty)
+            } else {
+                sync_self_name(&SubstTable::build(cfg), &item_impl.self_ty)
+            };
             for impl_item in &mut item_impl.items {
                 if let ImplItem::Fn(method) = impl_item {
                     passthrough_attrs(&mut method.attrs, variant)?;
@@ -252,16 +317,21 @@ fn emit_variant(
                     }
                     if variant.is_sync() {
                         method.sig.asyncness = None;
-                        if !cfg.keep_self {
-                            let sync_name = sync_ident(&cfg.rename, "rename", &method.sig.ident)?;
-                            table.add_auto_call(&method.sig.ident, &sync_name);
-                            method.sig.ident = sync_name;
-                        }
-                    } else if !cfg.keep_self
-                        && inherent
-                        && let Some(self_name) = &sync_self_name
-                    {
-                        let sync_name = sync_ident(&cfg.rename, "rename", &method.sig.ident)?;
+                        let sync_name = sync_ident(
+                            None,
+                            cfg.sync.pattern.as_ref(),
+                            "pattern",
+                            &method.sig.ident,
+                        )?;
+                        table.add_auto_call(&method.sig.ident, &sync_name);
+                        method.sig.ident = sync_name;
+                    } else if inherent && let Some(self_name) = &sync_self_name {
+                        let sync_name = sync_ident(
+                            None,
+                            cfg.sync.pattern.as_ref(),
+                            "pattern",
+                            &method.sig.ident,
+                        )?;
                         stub_docs(
                             &mut method.attrs,
                             &format!("{self_name}::{sync_name}"),
@@ -274,24 +344,35 @@ fn emit_variant(
                 if let Some((_, trait_path, _)) = &mut item_impl.trait_ {
                     table.subst_path(trait_path, false);
                 }
-            } else if cfg.flavor == Flavor::AsyncTrait && !inherent {
+            } else if cfg.flavor() == Flavor::AsyncTrait && !inherent {
                 item_impl.attrs.extend(async_trait_attrs(cfg));
             }
         }
         Item::Struct(item_struct) => {
             passthrough_attrs(&mut item_struct.attrs, variant)?;
             filter_fields(&mut item_struct.fields, variant);
-            if !cfg.keep_self {
-                let sync_name = sync_ident(&cfg.rename_types, "rename_types", &item_struct.ident)?;
-                if variant.is_sync() {
-                    item_struct.ident = sync_name;
-                } else {
-                    stub_docs(
-                        &mut item_struct.attrs,
-                        &sync_name.to_string(),
-                        cfg.async_doc.as_ref(),
-                    );
-                }
+            let source_name = item_struct.ident.clone();
+            let async_name = async_ident(cfg.async_.name.as_ref(), &source_name);
+            let sync_name = sync_ident(
+                cfg.sync.name.as_ref(),
+                cfg.sync.type_pattern.as_ref(),
+                "type_pattern",
+                &async_name,
+            )?;
+            ensure_distinct(&sync_name, &async_name)?;
+            let output_name = if variant.is_sync() {
+                &sync_name
+            } else {
+                &async_name
+            };
+            table.add_item_type(&source_name, output_name);
+            item_struct.ident = output_name.clone();
+            if !variant.is_sync() {
+                stub_docs(
+                    &mut item_struct.attrs,
+                    &sync_name.to_string(),
+                    cfg.async_.doc.as_ref(),
+                );
             }
         }
         Item::Enum(item_enum) => {
@@ -308,17 +389,28 @@ fn emit_variant(
                     }
                 })
                 .collect();
-            if !cfg.keep_self {
-                let sync_name = sync_ident(&cfg.rename_types, "rename_types", &item_enum.ident)?;
-                if variant.is_sync() {
-                    item_enum.ident = sync_name;
-                } else {
-                    stub_docs(
-                        &mut item_enum.attrs,
-                        &sync_name.to_string(),
-                        cfg.async_doc.as_ref(),
-                    );
-                }
+            let source_name = item_enum.ident.clone();
+            let async_name = async_ident(cfg.async_.name.as_ref(), &source_name);
+            let sync_name = sync_ident(
+                cfg.sync.name.as_ref(),
+                cfg.sync.type_pattern.as_ref(),
+                "type_pattern",
+                &async_name,
+            )?;
+            ensure_distinct(&sync_name, &async_name)?;
+            let output_name = if variant.is_sync() {
+                &sync_name
+            } else {
+                &async_name
+            };
+            table.add_item_type(&source_name, output_name);
+            item_enum.ident = output_name.clone();
+            if !variant.is_sync() {
+                stub_docs(
+                    &mut item_enum.attrs,
+                    &sync_name.to_string(),
+                    cfg.async_.doc.as_ref(),
+                );
             }
         }
         other => {
@@ -336,9 +428,9 @@ fn emit_variant(
     }
 
     let gate = if variant.is_sync() {
-        &cfg.sync_gate
+        &cfg.sync.gate
     } else {
-        &cfg.async_gate
+        &cfg.async_.gate
     };
     if let Some(feature) = gate
         && let Some(attrs) = item_attrs_mut(&mut item)
@@ -486,7 +578,7 @@ fn stub_docs(attrs: &mut Vec<Attribute>, target: &str, extra: Option<&LitStr>) {
 }
 
 fn async_trait_attrs(cfg: &Config) -> Vec<Attribute> {
-    if cfg.wasm_send {
+    if cfg.wasm_send() {
         vec![
             parse_quote!(#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]),
             parse_quote!(#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]),
@@ -494,6 +586,19 @@ fn async_trait_attrs(cfg: &Config) -> Vec<Attribute> {
     } else {
         vec![parse_quote!(#[async_trait::async_trait])]
     }
+}
+
+fn ensure_distinct(sync: &Ident, async_: &Ident) -> syn::Result<()> {
+    if sync == async_ {
+        return Err(syn::Error::new(
+            sync.span(),
+            format!(
+                "the sync and async variants would both be named `{sync}`; choose a distinct \
+                 `sync(name = ...)` or `async(name = ...)`"
+            ),
+        ));
+    }
+    Ok(())
 }
 
 /// The last ident of the impl self type after mapping it through the table —

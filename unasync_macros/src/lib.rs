@@ -14,12 +14,12 @@ mod subst;
 
 /// Emit an async and a sync variant of the annotated item.
 ///
-/// The item is written entirely in *async form* (async names, async types,
-/// `.await`); the async variant is emitted as-is, and the sync variant is
-/// derived by stripping `async`/`.await`, un-applying the explicit `rename`/
-/// `rename_types` patterns, and applying the `types(...)`/`calls(...)`
-/// substitution tables. See the `unasync` crate documentation for the full
-/// option list.
+/// The item is written in *async form* (async types, async bodies, `.await`);
+/// the async variant is emitted with its configured output name, and the sync variant is
+/// derived by stripping `async`/`.await`, selecting its configured exact name
+/// or applying the sync naming patterns, and applying the `types(...)`/
+/// `calls(...)` substitution tables. See the `unasync` crate documentation for
+/// the full option list.
 #[proc_macro_attribute]
 pub fn dual(args: TokenStream, input: TokenStream) -> TokenStream {
     expand::dual(args.into(), input.into())
@@ -28,7 +28,7 @@ pub fn dual(args: TokenStream, input: TokenStream) -> TokenStream {
 }
 
 /// Emit a sync `#[test]` and a cfg-gated async test (default `#[tokio::test]`,
-/// override with `async_attr = #[...]`) from one async-written test fn.
+/// override with `async(test_attr = #[...])`) from one async-written test fn.
 #[proc_macro_attribute]
 pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
     expand::test(args.into(), input.into())

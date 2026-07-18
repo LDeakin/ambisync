@@ -1,0 +1,5 @@
+error: `1` is not a valid Rust identifier
+ --> tests/ui/fail/invalid_captured_name.rs:2:10
+  |
+2 | async fn async_1() {}
+  |          ^^^^^^^

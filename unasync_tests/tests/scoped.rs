@@ -31,10 +31,12 @@ async fn async_make_store() -> AsyncStore {
 
 #[unasync::scope(
     async(feature = "async"),
-    rename = "async_{}",
+    sync(pattern = "async_{}"),
     types(AsyncStore => Store),
 )]
 mod scoped {
+    #![allow(clippy::let_unit_value)]
+
     use super::*;
 
     #[dual(calls(async_make_store => make_store))]
@@ -66,7 +68,11 @@ async fn scope_applies_defaults_async() {
 }
 
 unasync::content! {
-    #![defaults(async(feature = "async"), rename = "async_{}", types(AsyncStore => Store))]
+    #![defaults(
+        sync(pattern = "async_{}"),
+        async(feature = "async"),
+        types(AsyncStore => Store),
+    )]
 
     #[dual(calls(async_make_store => make_store))]
     pub async fn async_content_value() -> u32 {
@@ -90,4 +96,53 @@ fn content_applies_defaults_sync() {
 #[tokio::test]
 async fn content_applies_defaults_async() {
     assert_eq!(async_content_value().await, 2);
+}
+
+// Item-level `async(flavor = async_fn)` must override an `async_trait` scope
+// default. The async body deliberately holds an `Rc` across an await, which
+// would fail the default async-trait `Send` requirement.
+struct Local(std::rc::Rc<()>);
+
+#[unasync::scope(
+    sync(pattern = "async_{}", type_pattern = "Async{}"),
+    async(feature = "async", flavor = async_trait),
+)]
+mod flavor_override {
+    use std::future::ready;
+
+    use super::*;
+
+    #[dual(async(flavor = async_fn))]
+    pub trait AsyncLocalTask {
+        async fn async_run(&self);
+    }
+
+    #[dual(
+        async(flavor = async_fn),
+        types(AsyncLocalTask => LocalTask),
+    )]
+    impl AsyncLocalTask for Local {
+        async fn async_run(&self) {
+            let local = self.0.clone();
+            unasync::async_only! {
+                ready(()).await;
+            }
+            drop(local);
+        }
+    }
+}
+
+#[test]
+fn scoped_async_fn_flavor_overrides_async_trait_default() {
+    use flavor_override::LocalTask;
+
+    Local(std::rc::Rc::new(())).run();
+}
+
+#[cfg(feature = "async")]
+#[tokio::test]
+async fn scoped_async_fn_override_accepts_non_send_future() {
+    use flavor_override::AsyncLocalTask;
+
+    Local(std::rc::Rc::new(())).async_run().await;
 }

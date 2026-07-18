@@ -30,7 +30,7 @@ async fn async_make_store() -> AsyncStore {
 
 #[unasync::test(
     async(feature = "async"),
-    rename = "async_{}",
+    sync(pattern = "async_{}"),
     types(AsyncStore => Store),
     calls(async_make_store => make_store),
 )]
@@ -41,9 +41,8 @@ async fn async_store_roundtrip() {
 
 // Explicit runtime attribute.
 #[unasync::test(
-    async(feature = "async"),
-    rename = "async_{}",
-    async_attr = #[tokio::test],
+    sync(pattern = "async_{}"),
+    async(feature = "async", test_attr = #[tokio::test]),
     types(AsyncStore => Store),
     calls(async_make_store => make_store),
 )]
@@ -54,7 +53,7 @@ async fn async_store_roundtrip_explicit_attr() {
 }
 
 // Result-returning tests work in both variants.
-#[unasync::test(async(feature = "async"), rename = "async_{}")]
+#[unasync::test(sync(pattern = "async_{}"), async(feature = "async"))]
 async fn async_result_test() -> Result<(), String> {
     let value = unasync::alt!(sync => 1u32, async => 2u32);
     if value == 0 {
