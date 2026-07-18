@@ -137,8 +137,7 @@ fn async_enum_declaration_receives_shared_variants() {
     assert_eq!(AsyncDeclaredChoice::Value(3), AsyncDeclaredChoice::Value(3));
 }
 
-// Native async-trait lint suppression is applied after the declaration shell,
-// so replacing the outer attributes cannot discard it.
+// Native async-trait lint suppression is applied after the declaration shell, so replacing the outer attributes cannot discard it.
 #[ambisync(
     sync(
         fn_pattern = "async_{}",

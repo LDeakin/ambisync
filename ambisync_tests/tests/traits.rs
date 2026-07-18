@@ -109,9 +109,8 @@ async fn async_trait_flavor_object() {
     assert_eq!(obj.async_value().await, 42);
 }
 
-// async(send = false): always-`?Send` async_trait emission. The async body
-// deliberately holds an `Rc` across an await, which plain (`Send`)
-// `#[async_trait]` would reject.
+// async(send = false): always-`?Send` async_trait emission.
+// The async body deliberately holds an `Rc` across an await, which plain (`Send`) `#[async_trait]` would reject.
 #[ambisync(
     sync(fn_pattern = "async_{}", type_pattern = "Async{}"),
     async(feature = "async", flavor = async_trait, send = false),
@@ -147,9 +146,8 @@ async fn send_false_accepts_non_send_future() {
     assert_eq!(obj.async_local_value().await, 42);
 }
 
-// async(send = cfg(PRED)): `Send` where the predicate holds, `?Send`
-// elsewhere. `send = cfg(not(target_arch = "wasm32"))` is the standard
-// native-`Send` / wasm-`?Send` pairing.
+// async(send = cfg(PRED)): `Send` where the predicate holds, `?Send` elsewhere.
+// `send = cfg(not(target_arch = "wasm32"))` is the standard native-`Send` / wasm-`?Send` pairing.
 #[ambisync(
     sync(fn_pattern = "async_{}", type_pattern = "Async{}"),
     async(
@@ -189,13 +187,11 @@ async fn send_cfg_is_send_on_native() {
         fut
     }
     let obj: Box<dyn AsyncCfgValue + Send + Sync> = Box::new(Fixed);
-    // The test targets are native, so the predicate holds and the boxed
-    // future must be `Send`.
+    // The test targets are native, so the predicate holds and the boxed future must be `Send`.
     assert_eq!(assert_send(obj.async_cfg_value()).await, 7);
 }
 
-// Generic trait paths in trait-impl targets retain/substitute their generic
-// arguments rather than being limited to bare identifiers.
+// Generic trait paths in trait-impl targets retain/substitute their generic arguments rather than being limited to bare identifiers.
 pub struct GenericHolder<T>(T);
 pub struct AsyncGenericHolder<T>(T);
 

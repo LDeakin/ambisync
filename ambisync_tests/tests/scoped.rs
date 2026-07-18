@@ -95,9 +95,8 @@ async fn scoped_macro_applies_defaults_async() {
     assert_eq!(async_file_value().await, 2);
 }
 
-// Item-level `async(flavor = async_fn)` must override an `async_trait` scope
-// default. The async body deliberately holds an `Rc` across an await, which
-// would fail the default async-trait `Send` requirement.
+// Item-level `async(flavor = async_fn)` must override an `async_trait` scope default.
+// The async body deliberately holds an `Rc` across an await, which would fail the default async-trait `Send` requirement.
 struct Local(std::rc::Rc<()>);
 
 #[ambisync::scope(
@@ -144,8 +143,7 @@ async fn scoped_async_fn_override_accepts_non_send_future() {
     Local(std::rc::Rc::new(())).async_run().await;
 }
 
-// Arrow patterns are ordinary defaults, so they work in `scope` (and
-// `scoped!`) unchanged.
+// Arrow patterns are ordinary defaults, so they work in `scope` (and `scoped!`) unchanged.
 #[ambisync::scope(async(feature = "async"), sync(fn_pattern = "async_{} => sync_{}"))]
 mod arrow_scoped {
     #[ambisync]

@@ -593,9 +593,7 @@ fn item_attrs_mut(item: &mut Item) -> Option<&mut Vec<Attribute>> {
     }
 }
 
-/// Handle a `#[sync_only]`/`#[async_only]` gating attribute on a field, enum
-/// variant, or trait/impl item: returns whether the element is kept in this
-/// variant, removing the marker attribute either way.
+/// Handle a `#[sync_only]`/`#[async_only]` gating attribute on a field, enum variant, or trait/impl item: returns whether the element is kept in this variant, removing the marker attribute either way.
 fn keep_for_variant(attrs: &mut Vec<Attribute>, variant: Variant) -> bool {
     let mut keep = true;
     attrs.retain(|attr| {
@@ -667,9 +665,7 @@ fn filter_impl_items(items: &mut Vec<ImplItem>, variant: Variant) {
     });
 }
 
-/// Resolve `#[sync_attr(...)]` / `#[async_attr(...)]` passthrough attributes:
-/// the matching variant's payload is unwrapped into a real attribute, the
-/// other variant's is dropped.
+/// Resolve `#[sync_attr(...)]` / `#[async_attr(...)]` passthrough attributes: the matching variant's payload is unwrapped into a real attribute, the other variant's is dropped.
 fn passthrough_attrs(attrs: &mut Vec<Attribute>, variant: Variant) -> syn::Result<()> {
     let mut out = Vec::with_capacity(attrs.len());
     for attr in attrs.drain(..) {
@@ -724,8 +720,7 @@ fn async_trait_attrs(cfg: &Config) -> Vec<Attribute> {
     }
 }
 
-/// Negate a cfg predicate, unwrapping a top-level `not(...)` instead of
-/// stacking `not(not(...))`.
+/// Negate a cfg predicate, unwrapping a top-level `not(...)` instead of stacking `not(not(...))`.
 fn negate_cfg_predicate(predicate: &TokenStream) -> TokenStream {
     if let Ok(Meta::List(list)) = syn::parse2::<Meta>(predicate.clone())
         && list.path.is_ident("not")
@@ -758,9 +753,6 @@ mod tests {
             .to_string()
     }
 
-    /// Sync doc comments receive the same substitutions as code: `types(...)`
-    /// (including module-qualified paths), `calls(...)`, and the item's own
-    /// rename. Matching stops at identifier boundaries and path prefixes.
     #[test]
     fn sync_docs_follow_substitutions() {
         let out = expand(
@@ -792,8 +784,6 @@ mod tests {
         assert!(out.contains("[`AsyncStore`] and a [`mod_x::AsyncThing`]"));
     }
 
-    /// An exact async output name rewrites doc self-references in the async
-    /// variant, mirroring the code rewrite of recursive calls.
     #[test]
     fn async_docs_follow_the_async_rename() {
         let out = expand(
@@ -813,10 +803,6 @@ mod tests {
         assert!(!out.contains("internal_read"));
     }
 
-    /// The three `async(send = ...)` policies control `async_trait` emission:
-    /// plain (default / `true`), `?Send` (`false`), and the `cfg_attr` pairing
-    /// (`cfg(PRED)`), with a top-level `not(...)` predicate unwrapped rather
-    /// than double-negated.
     #[test]
     fn send_policies_control_async_trait_emission() {
         let expand_with = |async_options: proc_macro2::TokenStream| {

@@ -54,8 +54,7 @@ async fn async_fn_is_source_verbatim() {
     assert_eq!(async_read_value().await, 2);
 }
 
-// Path substitution in expression position (`AsyncStore::build`-style
-// associated fns and struct literals).
+// Path substitution in expression position (`AsyncStore::build`-style associated fns and struct literals).
 impl Store {
     fn build() -> Store {
         Store { value: 10 }
@@ -114,9 +113,7 @@ async fn async_markers_resolve() {
     assert_eq!(async_which_variant().await, "async-only,async");
 }
 
-// Best-effort rewriting inside macro token streams: `.await` stripped, type
-// idents substituted, and call names renamed for the sync variant; the async
-// variant keeps macro bodies verbatim.
+// Best-effort rewriting inside macro token streams: `.await` stripped, type idents substituted, and call names renamed for the sync variant; the async variant keeps macro bodies verbatim.
 #[ambisync(
     async(feature = "async"),
     sync(
@@ -172,8 +169,7 @@ fn suffix_pattern() {
     assert_eq!(suffix_styled(), 7);
 }
 
-// A generic-aware whole-type substitution (`&Arc<dyn Trait>`), impossible
-// with single-ident renames.
+// A generic-aware whole-type substitution (`&Arc<dyn Trait>`), impossible with single-ident renames.
 use std::sync::Arc;
 
 pub trait Decode {
@@ -221,9 +217,7 @@ async fn async_trait_object_param_verbatim() {
     assert_eq!(async_partial_decode(&handle, 100).await, 108);
 }
 
-// Module-qualified substitutions: the async and sync spellings may live in
-// different modules (`mod_x::AsyncThing => mod_y::Thing`), in type position
-// and in expression paths.
+// Module-qualified substitutions: the async and sync spellings may live in different modules (`mod_x::AsyncThing => mod_y::Thing`), in type position and in expression paths.
 pub mod mod_x {
     pub struct AsyncThing(pub u32);
     impl AsyncThing {
@@ -274,9 +268,8 @@ fn passthrough_compiles() {
     assert_eq!(passthrough(), 4);
 }
 
-// Async blocks and closures become synchronous closure calls/closures. The
-// `return` in the block must stay scoped to that block rather than returning
-// from the generated sync function.
+// Async blocks and closures become synchronous closure calls/closures.
+// The `return` in the block must stay scoped to that block rather than returning from the generated sync function.
 #[ambisync(sync(name = "nested_async_forms"), async(feature = "async"))]
 async fn async_nested_async_forms(seed: u32) -> u32 {
     let from_block = async move {
@@ -303,8 +296,7 @@ async fn async_nested_forms_remain_async() {
     assert_eq!(async_nested_async_forms(2).await, 6);
 }
 
-// Exact names allow the source to use a neutral internal name while both
-// public output names remain explicit.
+// Exact names allow the source to use a neutral internal name while both public output names remain explicit.
 #[ambisync(
     sync(name = "explicit_sync_name"),
     async(feature = "async", name = "explicit_async_name")
@@ -365,8 +357,7 @@ impl DeclaredAsyncInput {
 }
 
 // A declaration replaces the derived signature after the body is rewritten.
-// In particular, its `DeclaredSyncInput` type must not be passed through the
-// substitution machinery.
+// In particular, its `DeclaredSyncInput` type must not be passed through the substitution machinery.
 #[ambisync(
     sync(declaration {
         /// Complete blocking declaration.
@@ -400,8 +391,7 @@ async fn source_supplies_the_async_signature() {
     );
 }
 
-// Both output signatures can be explicit while the shared implementation
-// keeps an internal source name.
+// Both output signatures can be explicit while the shared implementation keeps an internal source name.
 #[ambisync(
     sync(declaration {
         pub fn both_declared_sync(input: &DeclaredSyncInput) -> u32;
@@ -430,8 +420,7 @@ async fn explicit_async_declaration_is_used() {
     assert_eq!(both_declared_async(&DeclaredAsyncInput(32)).await, 32);
 }
 
-// Functions also accept an ordinary empty-body item shell in addition to the
-// compact body-less declaration form.
+// Functions also accept an ordinary empty-body item shell in addition to the compact body-less declaration form.
 #[ambisync(
     sync(declaration {
         pub fn braced_declared_sync(input: &DeclaredSyncInput) -> u32 {}
@@ -459,8 +448,7 @@ async fn exact_async_name_is_used() {
     assert_eq!(explicit_async_name().await, 12);
 }
 
-// Arrow patterns map the async spelling to a sync spelling built from the
-// same `{}` stem instead of just stripping the affix.
+// Arrow patterns map the async spelling to a sync spelling built from the same `{}` stem instead of just stripping the affix.
 #[ambisync(sync(fn_pattern = "async_{} => sync_{}"), async(feature = "async"))]
 async fn async_doubled(x: u32) -> u32 {
     x * 2
@@ -477,8 +465,7 @@ async fn arrow_pattern_keeps_the_async_name() {
     assert_eq!(async_doubled(3).await, 6);
 }
 
-// Purely additive arrow patterns: the sync side can add an affix the async
-// spelling never had.
+// Purely additive arrow patterns: the sync side can add an affix the async spelling never had.
 #[ambisync(sync(fn_pattern = "{} => {}_blocking"), async(feature = "async"))]
 async fn fetch_count() -> u32 {
     9

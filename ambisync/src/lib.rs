@@ -4,8 +4,7 @@
 //! `#[ambisync]` emits two items:
 //!
 //! - the **async variant**: the source as written;
-//! - the **sync variant**: `async` removed, every `.await` stripped
-//! (`async { ... }` blocks become immediately invoked closures), and names, types, and calls mapped through the `sync(...)` options.
+//! - the **sync variant**: `async` removed, every `.await` stripped (`async { ... }` blocks become immediately invoked closures), and names, types, and calls mapped through the `sync(...)` options.
 //!
 //! Naming is **always explicit** — no `async_` prefix or other convention is assumed.
 //! Give an exact sync name, or use `sync(fn_pattern = "async_{}")` / `sync(type_pattern = "Async{}")` where one convention covers methods or multiple scoped items; the `{}` capture is the sync name.
@@ -178,24 +177,19 @@
 //! # fn main() {}
 //! ```
 //!
-//! # Limitations (by design)
+//! # Limitations
 //!
-//! - Substitution is **syntactic**: paths and types are matched token-for-token
-//! with no name resolution.
+//! - Substitution is **syntactic**: paths and types are matched token-for-token with no name resolution.
 //! Aliased spellings must be added to the table.
-//! - Inside macro invocations (`format!`, `assert_eq!`, ...) the sync rewrite
-//! is best-effort: `.await` stripping, single-ident type substitutions, and `name(...)` call renames.
-//! - `#[ambisync::scope]` needs an *inline* module; for `mod foo;` files use
-//! [`scoped!`](macro@scoped) inside the file.
+//! - Inside macro invocations (`format!`, `assert_eq!`, ...) the sync rewrite is best-effort: `.await` stripping, single-ident type substitutions, and `name(...)` call renames.
+//! - `#[ambisync::scope]` needs an *inline* module; for `mod foo;` files use [`scoped!`](macro@scoped) inside the file.
 
 pub use ambisync_macros::{ambisync, scope, scoped, test};
 
-/// Expression-level variant selector, resolved by `#[ambisync]` during
-/// expansion.
+/// Expression-level variant selector, resolved by `#[ambisync]` during expansion.
 ///
-/// `ambisync::alt!(sync => expr_a, async => expr_b)` becomes `expr_a` in the
-/// sync expansion and `expr_b` in the async expansion. Each arm is only
-/// type-checked in its own expansion.
+/// `ambisync::alt!(sync => expr_a, async => expr_b)` becomes `expr_a` in the sync expansion and `expr_b` in the async expansion.
+/// Each arm is only type-checked in its own expansion.
 #[macro_export]
 macro_rules! alt {
     ($($tt:tt)*) => {
@@ -207,11 +201,8 @@ macro_rules! alt {
 
 /// Sync-only marker.
 ///
-/// - As a statement macro (`ambisync::sync_only! { ... }`) inside an
-///   `#[ambisync]` body: the statements are kept only in the sync expansion.
-/// - As an attribute (`#[sync_only]`) on a struct field, enum variant, or
-///   trait/impl member of an `#[ambisync]` item: the element is kept only in
-///   the sync expansion.
+/// - As a statement macro (`ambisync::sync_only! { ... }`) inside an `#[ambisync]` body: the statements are kept only in the sync expansion.
+/// - As an attribute (`#[sync_only]`) on a struct field, enum variant, or trait/impl member of an `#[ambisync]` item: the element is kept only in the sync expansion.
 ///
 /// Resolved by `#[ambisync]` during expansion.
 #[macro_export]
@@ -225,11 +216,8 @@ macro_rules! sync_only {
 
 /// Async-only marker.
 ///
-/// - As a statement macro (`ambisync::async_only! { ... }`) inside an
-///   `#[ambisync]` body: the statements are kept only in the async expansion.
-/// - As an attribute (`#[async_only]`) on a struct field, enum variant, or
-///   trait/impl member of an `#[ambisync]` item: the element is kept only in
-///   the async expansion.
+/// - As a statement macro (`ambisync::async_only! { ... }`) inside an `#[ambisync]` body: the statements are kept only in the async expansion.
+/// - As an attribute (`#[async_only]`) on a struct field, enum variant, or trait/impl member of an `#[ambisync]` item: the element is kept only in the async expansion.
 ///
 /// Resolved by `#[ambisync]` during expansion.
 #[macro_export]

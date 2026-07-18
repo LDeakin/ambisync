@@ -13,21 +13,16 @@ use crate::config::Config;
 
 #[derive(Default)]
 pub struct SubstTable {
-    /// Whole-type substitutions, keyed by the normalized token string of the
-    /// async (source) spelling.
+    /// Whole-type substitutions, keyed by the normalized token string of the async (source) spelling.
     types: Vec<(String, Type)>,
-    /// Plain-path substitutions (types whose async spelling is a bare path
-    /// with no generic arguments). Used for expression paths
-    /// (`AsyncStore::new()`), struct literals, patterns, trait bounds and
-    /// trait-impl targets, where the path may extend past the matched prefix.
+    /// Plain-path substitutions (types whose async spelling is a bare path with no generic arguments).
+    /// Used for expression paths (`AsyncStore::new()`), struct literals, patterns, trait bounds and trait-impl targets, where the path may extend past the matched prefix.
     paths: Vec<(Path, Path)>,
-    /// Single-ident → single-ident subset of `paths`, safe to apply inside
-    /// macro token streams.
+    /// Single-ident → single-ident subset of `paths`, safe to apply inside macro token streams.
     idents: Vec<(String, Ident)>,
     /// Call renames: async (source) name → sync name.
     calls: Vec<(String, Ident)>,
-    /// Textual spellings of `paths` and `calls` entries, applied to doc
-    /// comments at identifier boundaries (`[`AsyncStore`]` → `[`Store`]`).
+    /// Textual spellings of `paths` and `calls` entries, applied to doc comments at identifier boundaries (`[`AsyncStore`]` → `[`Store`]`).
     doc_texts: Vec<(String, String)>,
 }
 
@@ -92,9 +87,8 @@ impl SubstTable {
         }
     }
 
-    /// Register the annotated type/trait's exact output rename. These entries
-    /// take precedence over user substitutions so self-references follow the
-    /// item name selected for this variant.
+    /// Register the annotated type/trait's exact output rename.
+    /// These entries take precedence over user substitutions so self-references follow the item name selected for this variant.
     pub fn add_item_type(&mut self, from: &Ident, to: &Ident) {
         if from == to {
             return;
@@ -104,8 +98,7 @@ impl SubstTable {
         self.register_type(&from, &to, true);
     }
 
-    /// Register an exact output rename for a free function so recursive calls
-    /// and references to the source name follow the generated item name.
+    /// Register an exact output rename for a free function so recursive calls and references to the source name follow the generated item name.
     pub fn add_item_call(&mut self, from: &Ident, to: &Ident) {
         if from != to {
             self.calls.insert(0, (from.to_string(), to.clone()));
@@ -113,8 +106,7 @@ impl SubstTable {
         }
     }
 
-    /// Register an automatic method rename (from renaming the methods of a
-    /// two-variant trait/impl) so that calls in bodies follow the rename.
+    /// Register an automatic method rename (from renaming the methods of a two-variant trait/impl) so that calls in bodies follow the rename.
     pub fn add_auto_call(&mut self, from: &Ident, to: &Ident) {
         // User-provided `sync(calls(...))` entries were added first and win.
         self.calls.push((from.to_string(), to.clone()));
@@ -141,8 +133,7 @@ impl SubstTable {
             .map(|(_, to)| to)
     }
 
-    /// Whole-type match: returns the replacement if `ty` matches an entry
-    /// token-for-token.
+    /// Whole-type match: returns the replacement if `ty` matches an entry token-for-token.
     pub fn subst_type(&self, ty: &Type) -> Option<Type> {
         if self.types.is_empty() {
             return None;
@@ -155,8 +146,7 @@ impl SubstTable {
     }
 
     /// Prefix-substitute a path in place (`AsyncStore::new` → `Store::new`).
-    /// In expression context, generic arguments on substituted segments get a
-    /// turbofish (`Foo::<T>`) so the result parses as an expression.
+    /// In expression context, generic arguments on substituted segments get a turbofish (`Foo::<T>`) so the result parses as an expression.
     pub fn subst_path(&self, path: &mut Path, expr_ctx: bool) -> bool {
         for (src, dst) in &self.paths {
             if path.leading_colon.is_some() != src.leading_colon.is_some()
@@ -179,8 +169,7 @@ impl SubstTable {
                 segments.push(seg.clone());
             }
 
-            // A bare source pattern such as `AsyncTrait => Trait` matches
-            // `AsyncTrait<T>` and carries its generic arguments to `Trait<T>`.
+            // A bare source pattern such as `AsyncTrait => Trait` matches `AsyncTrait<T>` and carries its generic arguments to `Trait<T>`.
             if let (Some(src_last), Some(actual_last), Some(dst_last)) = (
                 src.segments.last(),
                 path.segments.iter().nth(src.segments.len() - 1),
@@ -208,9 +197,7 @@ impl SubstTable {
         false
     }
 
-    /// Best-effort rewriting inside macro token streams for the sync
-    /// expansion: single-ident type substitutions, and call renames
-    /// recognized as `name ( ... )`.
+    /// Best-effort rewriting inside macro token streams for the sync expansion: single-ident type substitutions, and call renames recognized as `name ( ... )`.
     pub fn rewrite_macro_tokens(&self, tokens: TokenStream) -> TokenStream {
         let trees: Vec<TokenTree> = tokens.into_iter().collect();
         let mut out: Vec<TokenTree> = Vec::with_capacity(trees.len());
@@ -256,12 +243,8 @@ impl SubstTable {
         out.into_iter().collect()
     }
 
-    /// Substitute the table's spellings inside doc comment text, matching at
-    /// identifier boundaries just like the code rewrites: `paths` entries
-    /// (including module-qualified ones) and `calls` renames. A match must not
-    /// be preceded by an identifier character or `::` (a longer path), and
-    /// must not be followed by an identifier character; a trailing `::` is
-    /// fine, mirroring path prefix substitution (`AsyncStore::new`).
+    /// Substitute the table's spellings inside doc comment text, matching at identifier boundaries just like the code rewrites: `paths` entries (including module-qualified ones) and `calls` renames.
+    /// A match must not be preceded by an identifier character or `::` (a longer path), and must not be followed by an identifier character; a trailing `::` is fine, mirroring path prefix substitution (`AsyncStore::new`).
     pub fn rewrite_doc_text(&self, text: &str) -> Option<String> {
         if self.doc_texts.is_empty() {
             return None;
@@ -301,8 +284,7 @@ fn is_ident_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
 }
 
-/// A path's doc-comment spelling: its token string with whitespace removed
-/// (`mod_x :: AsyncThing` → `mod_x::AsyncThing`).
+/// A path's doc-comment spelling: its token string with whitespace removed (`mod_x :: AsyncThing` → `mod_x::AsyncThing`).
 fn path_doc_text(path: &Path) -> String {
     path.to_token_stream()
         .to_string()
@@ -327,8 +309,7 @@ fn path_arguments_key(arguments: &PathArguments) -> String {
     arguments.to_token_stream().to_string()
 }
 
-/// Best-effort `.await` stripping inside macro token streams for the sync
-/// expansion (e.g. `assert_eq!(x.get().await, 1)`).
+/// Best-effort `.await` stripping inside macro token streams for the sync expansion (e.g. `assert_eq!(x.get().await, 1)`).
 pub fn strip_awaits_in_tokens(tokens: TokenStream) -> TokenStream {
     let mut out: Vec<TokenTree> = Vec::new();
     let mut iter = tokens.into_iter().peekable();

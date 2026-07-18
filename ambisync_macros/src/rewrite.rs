@@ -118,8 +118,7 @@ impl<'a> Rewriter<'a> {
         self.variant.is_sync()
     }
 
-    /// Whether a `sync_only!`/`async_only!` marker's contents are kept in the
-    /// current variant.
+    /// Whether a `sync_only!`/`async_only!` marker's contents are kept in the current variant.
     fn marker_kept(&self, kind: MarkerKind) -> bool {
         match kind {
             MarkerKind::SyncOnly => self.is_sync(),
@@ -235,10 +234,8 @@ impl VisitMut for Rewriter<'_> {
                 *expr = base;
             }
 
-            // An immediately-awaited async block is not equivalent to a plain
-            // block when it contains `return` or uses `move`. A called closure
-            // preserves both the async block's control-flow boundary and its
-            // capture mode while making the result synchronous.
+            // An immediately-awaited async block is not equivalent to a plain block when it contains `return` or uses `move`.
+            // A called closure preserves both the async block's control-flow boundary and its capture mode while making the result synchronous.
             if let Expr::Async(async_expr) = expr {
                 let span = async_expr.span();
                 let attrs = std::mem::take(&mut async_expr.attrs);
@@ -316,8 +313,7 @@ impl VisitMut for Rewriter<'_> {
     }
 
     fn visit_attribute_mut(&mut self, attr: &mut Attribute) {
-        // Doc comments follow the same substitutions as code, so intra-doc
-        // links and prose mentions track each variant's names.
+        // Doc comments follow the same substitutions as code, so intra-doc links and prose mentions track each variant's names.
         if let Meta::NameValue(nv) = &mut attr.meta
             && nv.path.is_ident("doc")
             && let Expr::Lit(lit) = &mut nv.value
@@ -330,9 +326,8 @@ impl VisitMut for Rewriter<'_> {
     }
 
     fn visit_macro_mut(&mut self, mac: &mut Macro) {
-        // Markers are resolved at expr/stmt level before recursion reaches
-        // here. Only the sync variant strips `.await`; both variants may need
-        // item-name rewrites when an exact output name was configured.
+        // Markers are resolved at expr/stmt level before recursion reaches here.
+        // Only the sync variant strips `.await`; both variants may need item-name rewrites when an exact output name was configured.
         let mut tokens = mac.tokens.clone();
         if self.is_sync() {
             tokens = strip_awaits_in_tokens(tokens);

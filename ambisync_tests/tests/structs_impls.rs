@@ -43,8 +43,7 @@ impl AsyncClient {
         self.conn.get().await
     }
 
-    /// An async method calling another two-variant method of the same impl: the
-    /// rename is followed automatically in the derived sync variant.
+    /// An async method calling another two-variant method of the same impl: the rename is followed automatically in the derived sync variant.
     pub async fn async_fetch_twice(&self) -> u32 {
         self.async_fetch().await + self.async_fetch().await
     }
@@ -206,8 +205,7 @@ async fn identity_pattern_keeps_async_method_name() {
     assert_eq!(AsyncSameNamed.value().await, 13);
 }
 
-// Arrow patterns on impls and types: `async_{} => sync_{}` method names and
-// an `Async{} => Sync{}` type pattern, with call-following between methods.
+// Arrow patterns on impls and types: `async_{} => sync_{}` method names and an `Async{} => Sync{}` type pattern, with call-following between methods.
 #[ambisync(sync(type_pattern = "Async{} => Sync{}"), async(feature = "async"))]
 pub struct AsyncPort {
     pub value: u32,

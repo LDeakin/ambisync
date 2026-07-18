@@ -32,10 +32,7 @@ pub enum SendPolicy {
     Cfg(TokenStream),
 }
 
-/// One `sync(types(AsyncSpelling => SyncSpelling))` entry. The left side is the
-/// spelling used in the (async-form) source; it is matched syntactically
-/// (token-for-token, after normalization) against every type position in the
-/// derived sync expansion and replaced by the right side.
+/// One `sync(types(AsyncSpelling => SyncSpelling))` entry: the async spelling, matched token-for-token in the sync expansion, and its sync replacement.
 #[derive(Clone)]
 pub struct TypeSubst {
     pub async_: Type,
@@ -53,11 +50,9 @@ impl Parse for TypeSubst {
 
 /// A `sync(fn_pattern = ...)` / `sync(type_pattern = ...)` rename pattern.
 ///
-/// The short form names the async spelling and captures the sync name:
-/// `"async_{}"` maps `async_read` to `read`. The full form maps the async
-/// spelling to a sync spelling built from the same `{}` stem:
-/// `"async_{} => sync_{}"` maps `async_read` to `sync_read`. The short form
-/// is sugar for `"... => {}"`.
+/// The short form names the async spelling and captures the sync name: `"async_{}"` maps `async_read` to `read`.
+/// The full form maps the async spelling to a sync spelling built from the same `{}` stem: `"async_{} => sync_{}"` maps `async_read` to `sync_read`.
+/// The short form is sugar for `"... => {}"`.
 #[derive(Clone)]
 pub struct RenamePattern {
     lit: LitStr,
@@ -93,8 +88,7 @@ impl RenamePattern {
         })
     }
 
-    /// The sync ident derived from an async (source) ident, or `None` when
-    /// the ident does not match the pattern's async side.
+    /// The sync ident derived from an async (source) ident, or `None` when the ident does not match the pattern's async side.
     pub fn sync_name(&self, async_ident: &Ident) -> syn::Result<Option<Ident>> {
         let name = async_ident.to_string();
         let Some(stem) = name
@@ -129,9 +123,7 @@ fn split_pattern_side(lit: &LitStr, side: &str) -> syn::Result<(String, String)>
     Ok((prefix.to_string(), suffix.to_string()))
 }
 
-/// One `sync(calls(async_name => sync_name))` entry. In the derived sync expansion,
-/// calls/method-calls named `async_name` are renamed to `sync_name` (the
-/// `.await` on the call was written in the source and is stripped anyway).
+/// One `sync(calls(async_name => sync_name))` entry: calls and method calls named `async_name` are renamed to `sync_name` in the sync expansion.
 #[derive(Clone)]
 pub struct CallSwap {
     pub async_: Ident,
@@ -156,9 +148,8 @@ impl Parse for FnDeclaration {
     }
 }
 
-/// An empty Rust item shell supplied for one variant. Its attributes and
-/// header are emitted exactly as written; rewritten contents from the
-/// annotated item are attached after rewriting.
+/// An empty Rust item shell supplied for one variant.
+/// Its attributes and header are emitted exactly as written; rewritten contents from the annotated item are attached after rewriting.
 #[derive(Clone)]
 pub enum Declaration {
     Fn(FnDeclaration),
@@ -243,7 +234,8 @@ pub struct SyncConfig {
 pub struct AsyncConfig {
     /// Feature gating the async expansion.
     pub gate: Option<LitStr>,
-    /// Exact name for the annotated async item. The source name is used when omitted.
+    /// Exact name for the annotated async item.
+    /// The source name is used when omitted.
     pub name: Option<Ident>,
     /// Extra documentation appended to the async variant.
     pub doc: Option<LitStr>,
@@ -253,10 +245,10 @@ pub struct AsyncConfig {
     pub test_attr: Option<Vec<Attribute>>,
     /// Complete declaration shell for a generated async item.
     pub declaration: Option<Declaration>,
-    /// Async trait/impl emission style. `None` means the default `async_fn` flavor.
+    /// Async trait/impl emission style.
+    /// `None` means the default `async_fn` flavor.
     pub flavor: Option<Flavor>,
-    /// `Send`-ness of `async_trait` emission, with the `send` key's span for
-    /// validation diagnostics.
+    /// `Send`-ness of `async_trait` emission, with the `send` key's span for validation diagnostics.
     pub send: Option<(proc_macro2::Span, SendPolicy)>,
 }
 
@@ -627,8 +619,7 @@ impl Config {
     }
 
     /// Merge an item-level config over shared defaults (from `scope`/`scoped!`).
-    /// Item-level values win; substitution tables are concatenated with the
-    /// item-level entries first (first match wins during rewriting).
+    /// Item-level values win; substitution tables are concatenated with the item-level entries first (first match wins during rewriting).
     pub fn merged_over(mut self, defaults: &Config) -> Config {
         merge_option(&mut self.sync.gate, &defaults.sync.gate);
         merge_option(&mut self.sync.name, &defaults.sync.name);
@@ -729,8 +720,7 @@ fn merge_option<T: Clone>(item: &mut Option<T>, default: &Option<T>) {
     }
 }
 
-/// Compute the sync ident for a source (async) ident, erroring with guidance
-/// when no pattern was configured or the name does not match it.
+/// Compute the sync ident for a source (async) ident, erroring with guidance when no pattern was configured or the name does not match it.
 pub fn sync_ident(
     exact: Option<&Ident>,
     pattern: Option<&RenamePattern>,
