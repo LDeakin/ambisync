@@ -22,7 +22,7 @@ impl AsyncConn {
 #[ambisync(
     async(feature = "async"),
     sync(
-        pattern = "async_{}",
+        fn_pattern = "async_{}",
         type_pattern = "Async{}",
         types(AsyncConn => Conn),
     ),
@@ -50,7 +50,7 @@ pub struct AsyncClient {
 #[ambisync(
     async(feature = "async"),
     sync(
-        pattern = "async_{}",
+        fn_pattern = "async_{}",
         types(AsyncFetch => Fetch, AsyncClient => Client, AsyncConn => Conn),
     ),
 )]
@@ -77,7 +77,7 @@ async fn async_trait_with_default_bodies() {
 
 // async(flavor = async_trait): dyn-safe traits via #[async_trait::async_trait].
 #[ambisync(
-    sync(pattern = "async_{}", type_pattern = "Async{}"),
+    sync(fn_pattern = "async_{}", type_pattern = "Async{}"),
     async(feature = "async", flavor = async_trait),
 )]
 pub trait AsyncValue {
@@ -87,7 +87,7 @@ pub trait AsyncValue {
 pub struct Fixed;
 
 #[ambisync(
-    sync(pattern = "async_{}", types(AsyncValue => Value)),
+    sync(fn_pattern = "async_{}", types(AsyncValue => Value)),
     async(feature = "async", flavor = async_trait),
 )]
 impl AsyncValue for Fixed {
@@ -113,7 +113,7 @@ async fn async_trait_flavor_object() {
 // deliberately holds an `Rc` across an await, which plain (`Send`)
 // `#[async_trait]` would reject.
 #[ambisync(
-    sync(pattern = "async_{}", type_pattern = "Async{}"),
+    sync(fn_pattern = "async_{}", type_pattern = "Async{}"),
     async(feature = "async", flavor = async_trait, send = false),
 )]
 pub trait AsyncLocalValue {
@@ -121,7 +121,7 @@ pub trait AsyncLocalValue {
 }
 
 #[ambisync(
-    sync(pattern = "async_{}", types(AsyncLocalValue => LocalValue)),
+    sync(fn_pattern = "async_{}", types(AsyncLocalValue => LocalValue)),
     async(feature = "async", flavor = async_trait, send = false),
 )]
 impl AsyncLocalValue for Fixed {
@@ -151,7 +151,7 @@ async fn send_false_accepts_non_send_future() {
 // elsewhere. `send = cfg(not(target_arch = "wasm32"))` is the standard
 // native-`Send` / wasm-`?Send` pairing.
 #[ambisync(
-    sync(pattern = "async_{}", type_pattern = "Async{}"),
+    sync(fn_pattern = "async_{}", type_pattern = "Async{}"),
     async(
         feature = "async",
         flavor = async_trait,
@@ -163,7 +163,7 @@ pub trait AsyncCfgValue {
 }
 
 #[ambisync(
-    sync(pattern = "async_{}", types(AsyncCfgValue => CfgValue)),
+    sync(fn_pattern = "async_{}", types(AsyncCfgValue => CfgValue)),
     async(
         feature = "async",
         flavor = async_trait,
@@ -200,7 +200,7 @@ pub struct GenericHolder<T>(T);
 pub struct AsyncGenericHolder<T>(T);
 
 #[ambisync(
-    sync(name = "GenericTake", pattern = "async_{}"),
+    sync(name = "GenericTake", fn_pattern = "async_{}"),
     async(feature = "async")
 )]
 pub trait AsyncGenericTake<T> {
@@ -209,7 +209,7 @@ pub trait AsyncGenericTake<T> {
 
 #[ambisync(
     sync(
-        pattern = "async_{}",
+        fn_pattern = "async_{}",
         types(
             AsyncGenericTake<T> => GenericTake<T>,
             AsyncGenericHolder<T> => GenericHolder<T>,
@@ -236,7 +236,7 @@ async fn async_generic_trait_impl_is_unchanged() {
 
 // Per-variant trait members: default-bodied helpers kept in one variant only.
 #[ambisync(
-    sync(pattern = "async_{}", type_pattern = "Async{}"),
+    sync(fn_pattern = "async_{}", type_pattern = "Async{}"),
     async(feature = "async")
 )]
 pub trait AsyncTuning {

@@ -244,8 +244,8 @@ fn emit_variant(
             } else {
                 sync_ident(
                     cfg.sync.name.as_ref(),
-                    cfg.sync.pattern.as_ref(),
-                    "pattern",
+                    cfg.sync.fn_pattern.as_ref(),
+                    "fn_pattern",
                     &async_name,
                 )?
             };
@@ -302,8 +302,8 @@ fn emit_variant(
                         method.sig.asyncness = None;
                         let sync_name = sync_ident(
                             None,
-                            cfg.sync.pattern.as_ref(),
-                            "pattern",
+                            cfg.sync.fn_pattern.as_ref(),
+                            "fn_pattern",
                             &method.sig.ident,
                         )?;
                         table.add_auto_call(&method.sig.ident, &sync_name);
@@ -322,7 +322,7 @@ fn emit_variant(
                 return Err(syn::Error::new_spanned(
                     item_impl,
                     "`sync(name = ...)` / `async(name = ...)` cannot name an impl block; \
-                     use `sync(types(...))` for its trait/self types and `sync(pattern = ...)` \
+                     use `sync(types(...))` for its trait/self types and `sync(fn_pattern = ...)` \
                      for methods",
                 ));
             }
@@ -338,8 +338,8 @@ fn emit_variant(
                         method.sig.asyncness = None;
                         let sync_name = sync_ident(
                             None,
-                            cfg.sync.pattern.as_ref(),
-                            "pattern",
+                            cfg.sync.fn_pattern.as_ref(),
+                            "fn_pattern",
                             &method.sig.ident,
                         )?;
                         table.add_auto_call(&method.sig.ident, &sync_name);
@@ -822,7 +822,7 @@ mod tests {
         let expand_with = |async_options: proc_macro2::TokenStream| {
             expand(
                 quote! {
-                    sync(name = "Value", pattern = "async_{}"),
+                    sync(name = "Value", fn_pattern = "async_{}"),
                     async(flavor = async_trait, #async_options),
                 },
                 quote! {

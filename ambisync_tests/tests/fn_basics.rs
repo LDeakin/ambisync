@@ -33,7 +33,7 @@ async fn async_make_store() -> AsyncStore {
 #[ambisync(
     async(feature = "async"),
     sync(
-        pattern = "async_{}",
+        fn_pattern = "async_{}",
         types(AsyncStore => Store),
         calls(async_make_store => make_store),
     ),
@@ -68,7 +68,7 @@ impl AsyncStore {
 }
 
 #[ambisync(
-    sync(pattern = "async_{}", types(AsyncStore => Store)),
+    sync(fn_pattern = "async_{}", types(AsyncStore => Store)),
     async(feature = "async"),
 )]
 async fn async_build_and_read() -> u32 {
@@ -89,7 +89,7 @@ async fn async_expr_paths_untouched() {
 }
 
 // Markers: alt!, sync_only!, async_only!.
-#[ambisync(sync(pattern = "async_{}"), async(feature = "async"))]
+#[ambisync(sync(fn_pattern = "async_{}"), async(feature = "async"))]
 async fn async_which_variant() -> String {
     let mut parts: Vec<&str> = Vec::new();
     ambisync::sync_only! {
@@ -120,7 +120,7 @@ async fn async_markers_resolve() {
 #[ambisync(
     async(feature = "async"),
     sync(
-        pattern = "async_{}",
+        fn_pattern = "async_{}",
         types(AsyncStore => Store),
         calls(async_make_store => make_store),
     ),
@@ -141,7 +141,10 @@ async fn async_macro_tokens_verbatim() {
 }
 
 // Both variants independently feature-gated.
-#[ambisync(sync(feature = "sync", pattern = "async_{}"), async(feature = "async"))]
+#[ambisync(
+    sync(feature = "sync", fn_pattern = "async_{}"),
+    async(feature = "async")
+)]
 async fn async_gated_both() -> u32 {
     11
 }
@@ -159,7 +162,7 @@ async fn async_gate_applies() {
 }
 
 // Suffix-style patterns are supported as well as prefixes.
-#[ambisync(sync(pattern = "{}_async"), async(feature = "async"))]
+#[ambisync(sync(fn_pattern = "{}_async"), async(feature = "async"))]
 async fn suffix_styled_async() -> u32 {
     7
 }
@@ -195,7 +198,7 @@ impl AsyncDecode for Dec {
 #[ambisync(
     async(feature = "async"),
     sync(
-        pattern = "async_{}",
+        fn_pattern = "async_{}",
         types(&Arc<dyn AsyncDecode> => &Arc<dyn Decode>),
         calls(async_make_store => make_store),
     ),
@@ -259,7 +262,7 @@ async fn async_module_qualified_types_verbatim() {
 }
 
 // sync_attr/async_attr passthrough.
-#[ambisync(sync(pattern = "async_{}"), async(feature = "async"))]
+#[ambisync(sync(fn_pattern = "async_{}"), async(feature = "async"))]
 #[sync_attr(allow(clippy::unused_unit))]
 #[async_attr(allow(clippy::unused_async))]
 async fn async_passthrough() -> u32 {
@@ -458,7 +461,7 @@ async fn exact_async_name_is_used() {
 
 // Arrow patterns map the async spelling to a sync spelling built from the
 // same `{}` stem instead of just stripping the affix.
-#[ambisync(sync(pattern = "async_{} => sync_{}"), async(feature = "async"))]
+#[ambisync(sync(fn_pattern = "async_{} => sync_{}"), async(feature = "async"))]
 async fn async_doubled(x: u32) -> u32 {
     x * 2
 }
@@ -476,7 +479,7 @@ async fn arrow_pattern_keeps_the_async_name() {
 
 // Purely additive arrow patterns: the sync side can add an affix the async
 // spelling never had.
-#[ambisync(sync(pattern = "{} => {}_blocking"), async(feature = "async"))]
+#[ambisync(sync(fn_pattern = "{} => {}_blocking"), async(feature = "async"))]
 async fn fetch_count() -> u32 {
     9
 }

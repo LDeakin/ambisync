@@ -1,11 +1,11 @@
 error: a rename pattern has at most one `=>`
- --> tests/ui/fail/invalid_pattern.rs:1:37
+ --> tests/ui/fail/invalid_pattern.rs:1:40
   |
-1 | #[ambisync::ambisync(sync(pattern = "async_{} => {} => {}"))]
-  |                                     ^^^^^^^^^^^^^^^^^^^^^^
+1 | #[ambisync::ambisync(sync(fn_pattern = "async_{} => {} => {}"))]
+  |                                        ^^^^^^^^^^^^^^^^^^^^^^
 
 error: each side of a name pattern must contain exactly one `{}` placeholder, e.g. `async_{}`, `{}_async` or `async_{} => sync_{}`
- --> tests/ui/fail/invalid_pattern.rs:4:37
+ --> tests/ui/fail/invalid_pattern.rs:4:40
   |
-4 | #[ambisync::ambisync(sync(pattern = "async_{}{} => sync_{}"))]
-  |                                     ^^^^^^^^^^^^^^^^^^^^^^^
+4 | #[ambisync::ambisync(sync(fn_pattern = "async_{}{} => sync_{}"))]
+  |                                        ^^^^^^^^^^^^^^^^^^^^^^^

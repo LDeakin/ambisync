@@ -30,7 +30,7 @@ async fn async_make_store() -> AsyncStore {
 
 #[ambisync::scope(
     async(feature = "async"),
-    sync(pattern = "async_{}", types(AsyncStore => Store)),
+    sync(fn_pattern = "async_{}", types(AsyncStore => Store)),
 )]
 mod scoped {
     #![allow(clippy::let_unit_value)]
@@ -67,7 +67,7 @@ async fn scope_applies_defaults_async() {
 
 ambisync::scoped! {
     #![defaults(
-        sync(pattern = "async_{}", types(AsyncStore => Store)),
+        sync(fn_pattern = "async_{}", types(AsyncStore => Store)),
         async(feature = "async"),
     )]
 
@@ -101,7 +101,7 @@ async fn scoped_macro_applies_defaults_async() {
 struct Local(std::rc::Rc<()>);
 
 #[ambisync::scope(
-    sync(pattern = "async_{}", type_pattern = "Async{}"),
+    sync(fn_pattern = "async_{}", type_pattern = "Async{}"),
     async(feature = "async", flavor = async_trait),
 )]
 mod flavor_override {
@@ -146,7 +146,7 @@ async fn scoped_async_fn_override_accepts_non_send_future() {
 
 // Arrow patterns are ordinary defaults, so they work in `scope` (and
 // `scoped!`) unchanged.
-#[ambisync::scope(async(feature = "async"), sync(pattern = "async_{} => sync_{}"))]
+#[ambisync::scope(async(feature = "async"), sync(fn_pattern = "async_{} => sync_{}"))]
 mod arrow_scoped {
     #[ambisync]
     pub async fn async_answer() -> u32 {

@@ -51,7 +51,7 @@ impl Parse for TypeSubst {
     }
 }
 
-/// A `sync(pattern = ...)` / `sync(type_pattern = ...)` rename pattern.
+/// A `sync(fn_pattern = ...)` / `sync(type_pattern = ...)` rename pattern.
 ///
 /// The short form names the async spelling and captures the sync name:
 /// `"async_{}"` maps `async_read` to `read`. The full form maps the async
@@ -222,7 +222,7 @@ pub struct SyncConfig {
     /// Exact name for the annotated sync item.
     pub name: Option<Ident>,
     /// Pattern used to derive sync function/method names from async names.
-    pub pattern: Option<RenamePattern>,
+    pub fn_pattern: Option<RenamePattern>,
     /// Pattern used to derive sync type/trait names from async names.
     pub type_pattern: Option<RenamePattern>,
     /// Extra documentation appended to the sync variant.
@@ -293,7 +293,7 @@ impl Parse for Config {
                 "keep_self" => {
                     return Err(syn::Error::new(
                         key.span(),
-                        "`keep_self` has been removed; use `sync(pattern = \"{}\")` for \
+                        "`keep_self` has been removed; use `sync(fn_pattern = \"{}\")` for \
                          same-named methods (top-level sync and async items must have distinct names)",
                     ));
                 }
@@ -322,7 +322,7 @@ fn parse_sync_config(input: ParseStream, cfg: &mut SyncConfig) -> syn::Result<()
         match key.to_string().as_str() {
             "feature" => set_once(&mut cfg.gate, parse_value(input)?, &key)?,
             "name" => set_once(&mut cfg.name, parse_name(input)?, &key)?,
-            "pattern" => set_once(&mut cfg.pattern, parse_pattern_value(input)?, &key)?,
+            "fn_pattern" => set_once(&mut cfg.fn_pattern, parse_pattern_value(input)?, &key)?,
             "type_pattern" => {
                 set_once(&mut cfg.type_pattern, parse_pattern_value(input)?, &key)?;
             }
@@ -351,7 +351,7 @@ fn parse_sync_config(input: ParseStream, cfg: &mut SyncConfig) -> syn::Result<()
             _ => {
                 return Err(syn::Error::new(
                     key.span(),
-                    "unknown sync option; expected `feature`, `name`, `pattern`, `type_pattern`, \
+                    "unknown sync option; expected `feature`, `name`, `fn_pattern`, `type_pattern`, \
                      `doc`, `attr`, `test_attr`, `declaration`, `types` or `calls`",
                 ));
             }
@@ -607,7 +607,7 @@ fn set_once<T>(slot: &mut Option<T>, value: T, key: &Ident) -> syn::Result<()> {
 
 fn legacy_option_error(key: &Ident) -> syn::Error {
     let replacement = match key.to_string().as_str() {
-        "rename" => "`sync(pattern = \"...\")`",
+        "rename" => "`sync(fn_pattern = \"...\")`",
         "rename_types" => "`sync(type_pattern = \"...\")`",
         "async_doc" => "`async(doc = \"...\")`",
         "async_attr" => "`async(attr = #[...])`",
@@ -632,7 +632,7 @@ impl Config {
     pub fn merged_over(mut self, defaults: &Config) -> Config {
         merge_option(&mut self.sync.gate, &defaults.sync.gate);
         merge_option(&mut self.sync.name, &defaults.sync.name);
-        merge_option(&mut self.sync.pattern, &defaults.sync.pattern);
+        merge_option(&mut self.sync.fn_pattern, &defaults.sync.fn_pattern);
         merge_option(&mut self.sync.type_pattern, &defaults.sync.type_pattern);
         merge_option(&mut self.sync.doc, &defaults.sync.doc);
         merge_option(&mut self.sync.test_attr, &defaults.sync.test_attr);

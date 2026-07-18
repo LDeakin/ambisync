@@ -28,7 +28,7 @@ mod subst;
 /// - the annotated item is not a `fn`, `trait`, `impl`, `struct`, or `enum`,
 ///   or a function/method meant to be rewritten is not written in async form;
 /// - the sync variant has no name: no `sync(name = ...)`, no matching
-///   `sync(pattern = ...)` / `sync(type_pattern = ...)`, and no declaration
+///   `sync(fn_pattern = ...)` / `sync(type_pattern = ...)`, and no declaration
 ///   (or a pattern that fails to match the async spelling);
 /// - the sync and async variants would emit the same name;
 /// - a naming pattern is malformed (no `{}` capture, or a capture that is not

@@ -51,7 +51,7 @@ rustfmt understand.
     The transformation preserves the block's `return`/`?` boundary and `move`
     captures.
   - Async closures become ordinary closures.
-  - Names are mapped through `sync(name/pattern/type_pattern)`.
+  - Names are mapped through `sync(name/fn_pattern/type_pattern)`.
   - Types and calls are mapped through the `sync(types(...))` /
     `sync(calls(...))` tables.
 
@@ -60,13 +60,13 @@ No `async_` prefix or other convention is assumed.
 Use an exact name (`sync(name = "read")`) or a pattern when one convention
 covers methods or multiple items.
 A pattern names the async
-spelling and the `{}` capture is the sync name: `pattern = "async_{}"` maps
+spelling and the `{}` capture is the sync name: `fn_pattern = "async_{}"` maps
 `async_read` to `read`.
 The arrow form maps the `{}` stem into a different sync spelling.
-For example, `pattern = "async_{} => sync_{}"` maps `async_read` to `sync_read`.
+For example, `fn_pattern = "async_{} => sync_{}"` maps `async_read` to `sync_read`.
 Similarly, `type_pattern = "Async{} => Sync{}"` maps `AsyncClient` to
 `SyncClient`.
-`pattern = "{} => {}_blocking"` adds an affix that the async spelling never had.
+`fn_pattern = "{} => {}_blocking"` adds an affix that the async spelling never had.
 The short form is sugar for `"... => {}"`.
 
 The attribute always runs and emits the `#[cfg(feature = ...)]` gates itself —
@@ -82,9 +82,10 @@ either, or neither variant is feature-gated.
 | `doc = "..."` / `attr = #[...]` | ✓ | ✓ | variant-specific docs and item attributes |
 | `test_attr = #[...]` | ✓ | ✓ | test attribute (defaults `#[test]` / `#[tokio::test]`) |
 | `declaration { ... }` | ✓ | ✓ | complete outer declaration for the variant |
-| `pattern = "async_{}"` | ✓ | — | derive sync fn/method names; `{}` captures the sync name |
-| `pattern = "async_{} => sync_{}"` | ✓ | — | arrow form: map the async spelling to a sync spelling sharing the `{}` stem |
-| `type_pattern = "Async{}"` | ✓ | — | derive sync type/trait names; short and arrow forms as above |
+| `fn_pattern = "async_{}"` | ✓ | — | derive sync fn/method names; `{}` captures the sync name |
+| `fn_pattern = "async_{} => sync_{}"` | ✓ | — | arrow form: map the async spelling to a sync spelling sharing the `{}` stem |
+| `type_pattern = "Async{}"` | ✓ | — | derive sync type/trait names; `{}` captures the sync name |
+| `type_pattern = "Async{} => Sync{}"` | ✓ | — | arrow form: map the async spelling to a sync spelling sharing the `{}` stem |
 | `types(A => B, ...)` | ✓ | — | type substitutions, token-level, generic-aware; paths may be module-qualified (`mod_x::A => mod_y::B`) |
 | `calls(f => g, ...)` | ✓ | — | call renames (the `.await` lives in the source) |
 | `flavor = async_fn \| async_trait` | — | ✓ | async trait/impl emission style |
@@ -99,12 +100,12 @@ async-written source; the async expansion uses it verbatim.
 `struct`, and `enum`.
 
 - **Traits** — Rename the trait via `name`/`type_pattern` and methods via
-  `pattern`.
+  `fn_pattern`.
   Default bodies follow the renames.
   The async trait gets `#[allow(async_fn_in_trait)]`, or you can use
   `async(flavor = async_trait)`.
 - **Impls** — Rewrite the self type and trait path via `types(...)`.
-  Rename methods via `pattern`.
+  Rename methods via `fn_pattern`.
   Calls between renamed methods follow automatically.
   The identity pattern `"{}"` keeps method names unchanged when the sync and
   async types already provide separate namespaces.
@@ -154,7 +155,7 @@ pub enum AsyncMode {
 }
 
 #[ambisync(
-    sync(name = "Fetch", pattern = "async_{}"),
+    sync(name = "Fetch", fn_pattern = "async_{}"),
     async(feature = "async"),
 )]
 pub trait AsyncFetch {
@@ -219,7 +220,7 @@ a module:
 
 ```rust
 #[ambisync::scope(
-    sync(pattern = "async_{}", types(AsyncStore => Store)),
+    sync(fn_pattern = "async_{}", types(AsyncStore => Store)),
     async(feature = "async"),
 )]
 mod ops {
@@ -261,7 +262,7 @@ The standard native-`Send` / wasm-`?Send` pairing is:
 
 ```rust
 #[ambisync(
-    sync(name = "Fetch", pattern = "async_{}"),
+    sync(name = "Fetch", fn_pattern = "async_{}"),
     async(flavor = async_trait, send = cfg(not(target_arch = "wasm32"))),
 )]
 ```

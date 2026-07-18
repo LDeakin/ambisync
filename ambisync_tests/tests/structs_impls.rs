@@ -29,7 +29,7 @@ pub struct AsyncClient {
 #[ambisync(
     async(feature = "async"),
     sync(
-        pattern = "async_{}",
+        fn_pattern = "async_{}",
         types(AsyncClient => Client, AsyncConn => Conn),
     ),
 )]
@@ -133,7 +133,7 @@ pub struct AsyncWidget;
 
 #[ambisync(
     async(feature = "async"),
-    sync(pattern = "async_{}", types(AsyncWidget => Widget)),
+    sync(fn_pattern = "async_{}", types(AsyncWidget => Widget)),
 )]
 impl AsyncWidget {
     pub fn size(&self) -> u32 {
@@ -186,7 +186,7 @@ pub struct SameNamed;
 pub struct AsyncSameNamed;
 
 #[ambisync(
-    sync(pattern = "{}", types(AsyncSameNamed => SameNamed)),
+    sync(fn_pattern = "{}", types(AsyncSameNamed => SameNamed)),
     async(feature = "async"),
 )]
 impl AsyncSameNamed {
@@ -215,7 +215,7 @@ pub struct AsyncPort {
 
 #[ambisync(
     sync(
-        pattern = "async_{} => sync_{}",
+        fn_pattern = "async_{} => sync_{}",
         types(AsyncPort => SyncPort),
     ),
     async(feature = "async"),

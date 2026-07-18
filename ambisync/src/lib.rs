@@ -8,8 +8,8 @@
 //! (`async { ... }` blocks become immediately invoked closures), and names, types, and calls mapped through the `sync(...)` options.
 //!
 //! Naming is **always explicit** — no `async_` prefix or other convention is assumed.
-//! Give an exact sync name, or use `sync(pattern = "async_{}")` / `sync(type_pattern = "Async{}")` where one convention covers methods or multiple scoped items; the `{}` capture is the sync name.
-//! The arrow form maps the `{}` stem into a different sync spelling instead: `pattern = "async_{} => sync_{}"` maps `async_read` to `sync_read` (the short form is sugar for `"... => {}"`).
+//! Give an exact sync name, or use `sync(fn_pattern = "async_{}")` / `sync(type_pattern = "Async{}")` where one convention covers methods or multiple scoped items; the `{}` capture is the sync name.
+//! The arrow form maps the `{}` stem into a different sync spelling instead: `fn_pattern = "async_{} => sync_{}"` maps `async_read` to `sync_read` (the short form is sugar for `"... => {}"`).
 //!
 //! ```
 //! struct Store(u32);
@@ -36,9 +36,10 @@
 //! | `doc = "..."` / `attr = #[...]` | ✓ | ✓ | variant-specific docs and item attributes |
 //! | `test_attr = #[...]` | ✓ | ✓ | test attribute (defaults `#[test]` / `#[tokio::test]`) |
 //! | `declaration { ... }` | ✓ | ✓ | complete outer declaration for the variant |
-//! | `pattern = "async_{}"` | ✓ | — | derive sync fn/method names; `{}` captures the sync name |
-//! | `pattern = "async_{} => sync_{}"` | ✓ | — | arrow form: map the async spelling to a sync spelling sharing the `{}` stem |
-//! | `type_pattern = "Async{}"` | ✓ | — | derive sync type/trait names; short and arrow forms as above |
+//! | `fn_pattern = "async_{}"` | ✓ | — | derive sync fn/method names; `{}` captures the sync name |
+//! | `fn_pattern = "async_{} => sync_{}"` | ✓ | — | arrow form: map the async spelling to a sync spelling sharing the `{}` stem |
+//! | `type_pattern = "Async{}"` | ✓ | — | derive sync type/trait names; `{}` captures the sync name |
+//! | `type_pattern = "Async{} => Sync{}"` | ✓ | — | arrow form: map the async spelling to a sync spelling sharing the `{}` stem |
 //! | `types(A => B, ...)` | ✓ | — | type substitutions, token-level, generic-aware; paths may be module-qualified |
 //! | `calls(f => g, ...)` | ✓ | — | call renames (the `.await` lives in the source) |
 //! | `flavor = async_fn \| async_trait` | — | ✓ | async trait/impl emission style |
@@ -117,7 +118,7 @@
 //!   Concurrent { concurrency: usize },
 //! }
 //!
-//! #[ambisync::ambisync(sync(name = "Fetch", pattern = "async_{}"))]
+//! #[ambisync::ambisync(sync(name = "Fetch", fn_pattern = "async_{}"))]
 //! pub trait AsyncFetch {
 //!   async fn async_get(&self, key: &str) -> Option<Vec<u8>>;
 //!   #[sync_only]
@@ -140,7 +141,7 @@
 //! # struct AsyncStore(u32);
 //! # impl Store { fn get(&self) -> u32 { self.0 } }
 //! # impl AsyncStore { async fn get(&self) -> u32 { self.0 } }
-//! #[ambisync::scope(sync(pattern = "async_{}", types(AsyncStore => Store)))]
+//! #[ambisync::scope(sync(fn_pattern = "async_{}", types(AsyncStore => Store)))]
 //! mod ops {
 //!   use super::*;
 //!

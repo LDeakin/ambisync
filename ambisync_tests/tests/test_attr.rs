@@ -30,7 +30,7 @@ async fn async_make_store() -> AsyncStore {
 #[ambisync::test(
     async(feature = "async"),
     sync(
-        pattern = "async_{}",
+        fn_pattern = "async_{}",
         types(AsyncStore => Store),
         calls(async_make_store => make_store),
     ),
@@ -43,7 +43,7 @@ async fn async_store_roundtrip() {
 // Explicit runtime attribute.
 #[ambisync::test(
     sync(
-        pattern = "async_{}",
+        fn_pattern = "async_{}",
         test_attr = #[test],
         types(AsyncStore => Store),
         calls(async_make_store => make_store),
@@ -66,7 +66,7 @@ async fn async_store_roundtrip_explicit_attr() {
 async fn async_declared_test() {}
 
 // Result-returning tests work in both variants.
-#[ambisync::test(sync(pattern = "async_{}"), async(feature = "async"))]
+#[ambisync::test(sync(fn_pattern = "async_{}"), async(feature = "async"))]
 async fn async_result_test() -> Result<(), String> {
     let value = ambisync::alt!(sync => 1u32, async => 2u32);
     if value == 0 {
