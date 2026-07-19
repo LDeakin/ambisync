@@ -251,6 +251,39 @@ async fn sync_name_leaves_async_method_names_unchanged() {
     assert_eq!(Repo.async_read_twice().await, 10);
 }
 
+// `#[ambisync::paired]` keeps one mixed trait and derives a synchronous sibling for each async
+// method. Ordinary synchronous members remain single members of that trait.
+#[ambisync::paired(
+    sync(fns("async_{}"), types("Async{}")),
+    async(feature = "async", flavor = async_trait),
+)]
+pub trait MixedApi: Sync {
+    fn label(&self) -> &'static str {
+        "mixed"
+    }
+
+    async fn async_read(&self, reader: &AsyncReader) -> u32 {
+        reader.get().await
+    }
+}
+
+impl MixedApi for Fixed {}
+
+#[test]
+fn paired_trait_has_sync_and_common_methods() {
+    let api: &dyn MixedApi = &Fixed;
+    assert_eq!(api.label(), "mixed");
+    assert_eq!(api.read(&Reader), 5);
+}
+
+#[cfg(feature = "async")]
+#[tokio::test]
+async fn paired_trait_has_async_and_common_methods() {
+    let api: &dyn MixedApi = &Fixed;
+    assert_eq!(api.label(), "mixed");
+    assert_eq!(api.async_read(&AsyncReader).await, 5);
+}
+
 // `#[sync_signature(fn ...)]` keeps the method body shared while allowing lifetime relationships
 // in the sync API to differ from the async API. Its method name also participates in call mapping.
 pub struct BorrowSource(&'static str);

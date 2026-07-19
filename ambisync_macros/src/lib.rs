@@ -23,6 +23,17 @@ pub fn ambisync(args: TokenStream, input: TokenStream) -> TokenStream {
         .into()
 }
 
+/// Add a mechanically derived synchronous sibling for every async method in a mixed trait.
+///
+/// Unlike [`ambisync`], this keeps a single trait and leaves its existing synchronous members
+/// untouched. See the `ambisync` crate documentation for details.
+#[proc_macro_attribute]
+pub fn paired(args: TokenStream, input: TokenStream) -> TokenStream {
+    expand::paired(args.into(), input.into())
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
 /// Emit a sync `#[test]` and a cfg-gated async test (default `#[tokio::test]`, override either variant with `sync(test_attr = #[...])` / `async(test_attr = #[...])`) from one async-written test fn.
 #[proc_macro_attribute]
 pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {

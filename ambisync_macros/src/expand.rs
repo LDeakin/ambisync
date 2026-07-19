@@ -3,10 +3,11 @@
 use proc_macro2::TokenStream;
 use quote::{quote, ToTokens};
 use syn::parse::{Parse, ParseStream};
+use syn::spanned::Spanned;
 use syn::visit_mut::VisitMut;
 use syn::{
-    parse_quote, AttrStyle, Attribute, Fields, Ident, ImplItem, ImplItemFn, Item, ItemMod, LitStr,
-    Meta, Token, TraitItem, Visibility,
+    parse_quote, AttrStyle, Attribute, Fields, Ident, ImplItem, ImplItemFn, Item, ItemMod,
+    ItemTrait, LitStr, Meta, Token, TraitItem, Visibility,
 };
 
 use crate::config::{async_ident, Config, Declaration, Flavor, SendPolicy};
@@ -17,6 +18,163 @@ pub fn ambisync(args: TokenStream, input: TokenStream) -> syn::Result<TokenStrea
     let cfg = Config::parse_args(args)?;
     let item: Item = syn::parse2(input)?;
     expand_item(&item, &cfg, false)
+}
+
+/// Expand the async methods of a mixed sync/async trait in place.
+///
+/// Ordinary trait members are emitted once. Each async method is emitted as written (and
+/// optionally feature-gated) alongside a mechanically derived synchronous sibling.
+pub fn paired(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> {
+    let cfg = Config::parse_args(args)?;
+    cfg.validate_effective()?;
+    validate_paired_config(&cfg)?;
+
+    let mut item: ItemTrait = syn::parse2(input)?;
+    let mut output_items = Vec::with_capacity(item.items.len());
+    let mut has_async_methods = false;
+
+    for trait_item in std::mem::take(&mut item.items) {
+        let TraitItem::Fn(mut source) = trait_item else {
+            output_items.push(trait_item);
+            continue;
+        };
+        if source.sig.asyncness.is_none() {
+            output_items.push(TraitItem::Fn(source));
+            continue;
+        }
+        has_async_methods = true;
+
+        let sync_name = take_sync_name(&mut source.attrs)?;
+        let sync_signature = take_sync_signature(&mut source.attrs)?;
+        if sync_name.is_some() && sync_signature.is_some() {
+            return Err(syn::Error::new_spanned(
+                &source.sig,
+                "`#[sync_name(...)]` and `#[sync_signature(fn ...)]` cannot be used on the same method",
+            ));
+        }
+
+        let source_name = source.sig.ident.clone();
+        let sync_name = if let Some(signature) = &sync_signature {
+            signature.ident.clone()
+        } else if let Some(sync_name) = sync_name {
+            sync_name
+        } else {
+            cfg.sync.sync_fn_ident(None, &source_name)?
+        };
+        ensure_distinct(&sync_name, &source_name)?;
+
+        let mut sync_method = source.clone();
+        passthrough_attrs(&mut sync_method.attrs, Variant::Sync)?;
+        let mut table = SubstTable::build(&cfg);
+        rewrite_method_signature(
+            &mut sync_method.sig,
+            &[(source_name.clone(), sync_name.clone())],
+            &cfg,
+            Variant::Sync,
+            &mut table,
+        )?;
+        let mut sync_item = TraitItem::Fn(sync_method);
+        let mut rewriter = Rewriter::new(Variant::Sync, &table);
+        rewriter.visit_trait_item_mut(&mut sync_item);
+        if let Some(err) = rewriter.take_error() {
+            return Err(err);
+        }
+        let TraitItem::Fn(mut sync_method) = sync_item else {
+            unreachable!("rewriting a trait method preserves its item kind")
+        };
+        if let Some(signature) = sync_signature {
+            sync_method.sig = signature;
+        }
+        if let Some(feature) = &cfg.sync.gate {
+            sync_method
+                .attrs
+                .insert(0, parse_quote!(#[cfg(feature = #feature)]));
+        }
+        output_items.push(TraitItem::Fn(sync_method));
+
+        passthrough_attrs(&mut source.attrs, Variant::Async)?;
+        let mut async_item = TraitItem::Fn(source);
+        let async_table = SubstTable::default();
+        let mut rewriter = Rewriter::new(Variant::Async, &async_table);
+        rewriter.visit_trait_item_mut(&mut async_item);
+        if let Some(err) = rewriter.take_error() {
+            return Err(err);
+        }
+        let TraitItem::Fn(mut async_method) = async_item else {
+            unreachable!("rewriting a trait method preserves its item kind")
+        };
+        if let Some(feature) = &cfg.async_.gate {
+            async_method
+                .attrs
+                .insert(0, parse_quote!(#[cfg(feature = #feature)]));
+        }
+        output_items.push(TraitItem::Fn(async_method));
+    }
+
+    item.items = output_items;
+    if has_async_methods {
+        match cfg.flavor() {
+            Flavor::AsyncFn => item.attrs.push(parse_quote!(#[allow(async_fn_in_trait)])),
+            Flavor::AsyncTrait => item.attrs.extend(paired_async_trait_attrs(&cfg)),
+        }
+    }
+    Ok(quote!(#item))
+}
+
+fn validate_paired_config(cfg: &Config) -> syn::Result<()> {
+    let unsupported = cfg
+        .sync
+        .name
+        .as_ref()
+        .map(Ident::span)
+        .or_else(|| cfg.async_.name.as_ref().map(Ident::span))
+        .or_else(|| cfg.sync.declaration.as_ref().map(Declaration::span))
+        .or_else(|| cfg.async_.declaration.as_ref().map(Declaration::span))
+        .or_else(|| cfg.sync.doc.as_ref().map(LitStr::span))
+        .or_else(|| cfg.async_.doc.as_ref().map(LitStr::span))
+        .or_else(|| cfg.sync.attrs.first().map(Attribute::span))
+        .or_else(|| cfg.async_.attrs.first().map(Attribute::span))
+        .or_else(|| {
+            cfg.sync
+                .test_attr
+                .as_ref()
+                .and_then(|attrs| attrs.first())
+                .map(Attribute::span)
+        })
+        .or_else(|| {
+            cfg.async_
+                .test_attr
+                .as_ref()
+                .and_then(|attrs| attrs.first())
+                .map(Attribute::span)
+        });
+    if let Some(span) = unsupported {
+        return Err(syn::Error::new(
+            span,
+            "`#[ambisync::paired]` accepts feature/flavor/send and sync rename tables; item-level names, declarations, docs, attributes and test attributes are not applicable",
+        ));
+    }
+    Ok(())
+}
+
+fn paired_async_trait_attrs(cfg: &Config) -> Vec<Attribute> {
+    let gate = cfg.async_.gate.as_ref();
+    match (gate, cfg.send_policy()) {
+        (None, _) => async_trait_attrs(cfg),
+        (Some(feature), SendPolicy::Always) => {
+            vec![parse_quote!(#[cfg_attr(feature = #feature, async_trait::async_trait)])]
+        }
+        (Some(feature), SendPolicy::Never) => {
+            vec![parse_quote!(#[cfg_attr(feature = #feature, async_trait::async_trait(?Send))])]
+        }
+        (Some(feature), SendPolicy::Cfg(predicate)) => {
+            let negated = negate_cfg_predicate(&predicate);
+            vec![
+                parse_quote!(#[cfg_attr(all(feature = #feature, #predicate), async_trait::async_trait)]),
+                parse_quote!(#[cfg_attr(all(feature = #feature, #negated), async_trait::async_trait(?Send))]),
+            ]
+        }
+    }
 }
 
 pub fn test(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> {

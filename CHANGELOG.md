@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Add `#[sync_signature(fn ...)]` for trait and impl methods whose sync signature cannot be mechanically derived from the async signature
+- Add `#[ambisync::paired]` for deriving synchronous siblings of async methods that coexist in one mixed trait
 
 ### Added
 - `#[ambisync]`: emit an async and a mechanically derived sync variant of an async-written `fn`, `trait`, `impl`, `struct`, or `enum`.

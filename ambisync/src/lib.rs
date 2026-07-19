@@ -93,6 +93,33 @@
 //!   The identity pattern `fns("{}")` keeps method names unchanged when the sync and async types already provide separate namespaces.
 //! - **Structs / Enums**: The type is renamed and field types are substituted.
 //!
+//! When sync and async entry points must coexist on the same public trait, use
+//! [`macro@paired`] instead. It leaves ordinary trait members alone and emits a synchronous
+//! sibling beside every async method:
+//!
+//! ```
+//! # struct Reader; struct AsyncReader;
+//! # impl Reader { fn get(&self) -> u32 { 1 } }
+//! # impl AsyncReader { async fn get(&self) -> u32 { 1 } }
+//! #[ambisync::paired(
+//!     sync(fns("async_{}"), types("Async{}")),
+//!     async(feature = "async", flavor = async_trait),
+//! )]
+//! trait ReadApi: Sync {
+//!     fn label(&self) -> &'static str { "reader" }
+//!
+//!     async fn async_read(&self, reader: &AsyncReader) -> u32 {
+//!         reader.get().await
+//!     }
+//! }
+//! ```
+//!
+//! This produces `read(&Reader)` and the feature-gated `async_read(&AsyncReader)` in `ReadApi`.
+//! The `sync(fns(...))` and `sync(types(...))` tables, `async(feature/flavor/send)`,
+//! `sync(feature)`, and method-level `#[sync_name]`, `#[sync_signature]`, `#[sync_attr]`, and
+//! `#[async_attr]` options work as they do with [`macro@ambisync`]. Item-level renames,
+//! declarations, docs, and attributes do not apply because [`macro@paired`] emits one trait.
+//!
 //! `#[sync_name(name)]` states one method's exact sync name at the method itself, taking precedence over the `fns(...)` table.
 //! It also covers methods that are not `async fn`, which the table never renames: a synchronous method may still carry an async name, for example when it returns an async-capable reader rather than a future.
 //! Calls and doc mentions follow the override:
@@ -344,7 +371,7 @@
 //!
 //! Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
 
-pub use ambisync_macros::{ambisync, scope, scoped, test};
+pub use ambisync_macros::{ambisync, paired, scope, scoped, test};
 
 /// Expression-level variant selector, resolved by `#[ambisync]` during expansion.
 ///
