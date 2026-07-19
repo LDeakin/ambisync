@@ -1,15 +1,15 @@
 //! Item-level expansion: emit the async variant (the source, minus helper attributes and resolved markers) and the derived sync variant, plus the `scope`/`scoped!` shared-defaults wrappers.
 
 use proc_macro2::TokenStream;
-use quote::{ToTokens, quote};
+use quote::{quote, ToTokens};
 use syn::parse::{Parse, ParseStream};
 use syn::visit_mut::VisitMut;
 use syn::{
-    AttrStyle, Attribute, Fields, Ident, ImplItem, ImplItemFn, Item, ItemMod, LitStr, Meta, Token,
-    TraitItem, Visibility, parse_quote,
+    parse_quote, AttrStyle, Attribute, Fields, Ident, ImplItem, ImplItemFn, Item, ItemMod, LitStr,
+    Meta, Token, TraitItem, Visibility,
 };
 
-use crate::config::{Config, Declaration, Flavor, SendPolicy, async_ident};
+use crate::config::{async_ident, Config, Declaration, Flavor, SendPolicy};
 use crate::rewrite::{Rewriter, Variant};
 use crate::subst::SubstTable;
 
@@ -189,17 +189,17 @@ fn validate_declaration_kinds(item: &Item, cfg: &Config) -> syn::Result<()> {
         ("sync", cfg.sync.declaration.as_ref()),
         ("async", cfg.async_.declaration.as_ref()),
     ] {
-        if let Some(declaration) = declaration
-            && declaration.kind_name() != expected
-        {
-            return Err(syn::Error::new(
-                declaration.span(),
-                format!(
-                    "`{variant}(declaration {{ ... }})` for this item must declare a {expected}, \
-                     not a {}",
-                    declaration.kind_name()
-                ),
-            ));
+        if let Some(declaration) = declaration {
+            if declaration.kind_name() != expected {
+                return Err(syn::Error::new(
+                    declaration.span(),
+                    format!(
+                        "`{variant}(declaration {{ ... }})` for this item must declare a \
+                         {expected}, not a {}",
+                        declaration.kind_name()
+                    ),
+                ));
+            }
         }
     }
     Ok(())
@@ -261,14 +261,14 @@ fn emit_variant(
             filter_trait_items(&mut item_trait.items, variant);
             let mut member_sync_names = Vec::new();
             for trait_item in &mut item_trait.items {
-                if let TraitItem::Fn(method) = trait_item
-                    && let Some(sync_name) = take_sync_name(&mut method.attrs)?
-                {
-                    let source_name = method.sig.ident.clone();
-                    if variant.is_sync() {
-                        table.add_item_call(&source_name, &sync_name);
+                if let TraitItem::Fn(method) = trait_item {
+                    if let Some(sync_name) = take_sync_name(&mut method.attrs)? {
+                        let source_name = method.sig.ident.clone();
+                        if variant.is_sync() {
+                            table.add_item_call(&source_name, &sync_name);
+                        }
+                        member_sync_names.push((source_name, sync_name));
                     }
-                    member_sync_names.push((source_name, sync_name));
                 }
             }
             let source_trait_ident = item_trait.ident.clone();
@@ -329,14 +329,14 @@ fn emit_variant(
             filter_impl_items(&mut item_impl.items, variant);
             let mut member_sync_names = Vec::new();
             for impl_item in &mut item_impl.items {
-                if let ImplItem::Fn(method) = impl_item
-                    && let Some(sync_name) = take_sync_name(&mut method.attrs)?
-                {
-                    let source_name = method.sig.ident.clone();
-                    if variant.is_sync() {
-                        table.add_item_call(&source_name, &sync_name);
+                if let ImplItem::Fn(method) = impl_item {
+                    if let Some(sync_name) = take_sync_name(&mut method.attrs)? {
+                        let source_name = method.sig.ident.clone();
+                        if variant.is_sync() {
+                            table.add_item_call(&source_name, &sync_name);
+                        }
+                        member_sync_names.push((source_name, sync_name));
                     }
-                    member_sync_names.push((source_name, sync_name));
                 }
             }
             for impl_item in &mut item_impl.items {
@@ -351,10 +351,10 @@ fn emit_variant(
                     )?;
                 }
             }
-            if variant.is_sync()
-                && let Some((_, trait_path, _)) = &mut item_impl.trait_
-            {
-                table.subst_path(trait_path, false);
+            if variant.is_sync() {
+                if let Some((_, trait_path, _)) = &mut item_impl.trait_ {
+                    table.subst_path(trait_path, false);
+                }
             }
         }
         Item::Struct(item_struct) => {
@@ -455,10 +455,10 @@ fn emit_variant(
     } else {
         &cfg.async_.gate
     };
-    if let Some(feature) = gate
-        && let Some(attrs) = item_attrs_mut(&mut item)
-    {
-        attrs.insert(0, parse_quote!(#[cfg(feature = #feature)]));
+    if let Some(feature) = gate {
+        if let Some(attrs) = item_attrs_mut(&mut item) {
+            attrs.insert(0, parse_quote!(#[cfg(feature = #feature)]));
+        }
     }
 
     Ok(quote!(#item))
@@ -859,10 +859,10 @@ fn async_trait_attrs(cfg: &Config) -> Vec<Attribute> {
 
 /// Negate a cfg predicate, unwrapping a top-level `not(...)` instead of stacking `not(not(...))`.
 fn negate_cfg_predicate(predicate: &TokenStream) -> TokenStream {
-    if let Ok(Meta::List(list)) = syn::parse2::<Meta>(predicate.clone())
-        && list.path.is_ident("not")
-    {
-        return list.tokens;
+    if let Ok(Meta::List(list)) = syn::parse2::<Meta>(predicate.clone()) {
+        if list.path.is_ident("not") {
+            return list.tokens;
+        }
     }
     quote!(not(#predicate))
 }
@@ -1084,11 +1084,9 @@ mod tests {
         assert!(conditional.contains(
             &quote!(#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]).to_string()
         ));
-        assert!(
-            conditional.contains(
-                &quote!(#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))])
-                    .to_string()
-            )
-        );
+        assert!(conditional.contains(
+            &quote!(#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))])
+                .to_string()
+        ));
     }
 }

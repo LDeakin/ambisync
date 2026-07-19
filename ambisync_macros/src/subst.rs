@@ -158,12 +158,11 @@ impl SubstTable {
     /// Pattern fallback for type position: rename the leading ident of a plain path type in place (`AsyncGroup<T>` → `Group<T>` under `types("Async{}")`).
     /// Generic arguments are untouched; the caller keeps visiting them.
     pub fn subst_type_pattern(&self, ty: &mut Type) -> bool {
-        if let Type::Path(type_path) = ty
-            && type_path.qself.is_none()
-        {
-            self.pattern_rename_leading_segment(&mut type_path.path)
-        } else {
-            false
+        match ty {
+            Type::Path(type_path) if type_path.qself.is_none() => {
+                self.pattern_rename_leading_segment(&mut type_path.path)
+            }
+            _ => false,
         }
     }
 
@@ -211,10 +210,10 @@ impl SubstTable {
                 src.segments.last(),
                 path.segments.iter().nth(src.segments.len() - 1),
                 segments.last_mut(),
-            ) && src_last.arguments.is_none()
-                && dst_last.arguments.is_none()
-            {
-                dst_last.arguments = actual_last.arguments.clone();
+            ) {
+                if src_last.arguments.is_none() && dst_last.arguments.is_none() {
+                    dst_last.arguments = actual_last.arguments.clone();
+                }
             }
 
             for seg in path.segments.iter().skip(src.segments.len()) {
@@ -252,12 +251,12 @@ impl SubstTable {
                 }
                 TokenTree::Ident(ident) => {
                     let name = ident.to_string();
-                    if let Some(to) = self.lookup_call_str(&name)
-                        && call_follows(&trees, i + 1)
-                    {
-                        out.push(TokenTree::Ident(Ident::new(&to, ident.span())));
-                        i += 1;
-                        continue;
+                    if let Some(to) = self.lookup_call_str(&name) {
+                        if call_follows(&trees, i + 1) {
+                            out.push(TokenTree::Ident(Ident::new(&to, ident.span())));
+                            i += 1;
+                            continue;
+                        }
                     }
                     let type_subst = self
                         .idents
@@ -403,9 +402,9 @@ pub fn strip_awaits_in_tokens(tokens: TokenStream) -> TokenStream {
                 out.push(TokenTree::Group(new));
             }
             TokenTree::Punct(punct) if punct.as_char() == '.' => {
-                if let Some(TokenTree::Ident(next)) = iter.peek()
-                    && next == "await"
-                {
+                let awaited =
+                    matches!(iter.peek(), Some(TokenTree::Ident(next)) if next == "await");
+                if awaited {
                     iter.next();
                 } else {
                     out.push(TokenTree::Punct(punct));

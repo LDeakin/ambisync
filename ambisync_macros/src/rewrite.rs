@@ -13,7 +13,7 @@ use syn::{
     TraitBound, TypeParam, TypeParamBound,
 };
 
-use crate::subst::{SubstTable, strip_awaits_in_tokens};
+use crate::subst::{strip_awaits_in_tokens, SubstTable};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Variant {
@@ -233,38 +233,38 @@ impl VisitMut for Rewriter<'_> {
 
     fn visit_expr_mut(&mut self, expr: &mut Expr) {
         // Resolve markers in expression position.
-        if let Expr::Macro(em) = expr
-            && let Some(kind) = marker_kind(&em.mac.path)
-        {
-            match kind {
-                MarkerKind::Alt => {
-                    if let Some(chosen) = self.resolve_alt(&em.mac) {
-                        *expr = chosen;
-                        self.visit_expr_mut(expr);
-                    }
-                }
-                MarkerKind::SyncOnly | MarkerKind::AsyncOnly => {
-                    if self.marker_kept(kind) {
-                        match em.mac.parse_body_with(Block::parse_within) {
-                            Ok(stmts) => {
-                                *expr = Expr::Block(ExprBlock {
-                                    attrs: Vec::new(),
-                                    label: None,
-                                    block: Block {
-                                        brace_token: Default::default(),
-                                        stmts,
-                                    },
-                                });
-                                self.visit_expr_mut(expr);
-                            }
-                            Err(err) => self.record_error(err),
+        if let Expr::Macro(em) = expr {
+            if let Some(kind) = marker_kind(&em.mac.path) {
+                match kind {
+                    MarkerKind::Alt => {
+                        if let Some(chosen) = self.resolve_alt(&em.mac) {
+                            *expr = chosen;
+                            self.visit_expr_mut(expr);
                         }
-                    } else {
-                        *expr = unit_expr(em.mac.span());
+                    }
+                    MarkerKind::SyncOnly | MarkerKind::AsyncOnly => {
+                        if self.marker_kept(kind) {
+                            match em.mac.parse_body_with(Block::parse_within) {
+                                Ok(stmts) => {
+                                    *expr = Expr::Block(ExprBlock {
+                                        attrs: Vec::new(),
+                                        label: None,
+                                        block: Block {
+                                            brace_token: Default::default(),
+                                            stmts,
+                                        },
+                                    });
+                                    self.visit_expr_mut(expr);
+                                }
+                                Err(err) => self.record_error(err),
+                            }
+                        } else {
+                            *expr = unit_expr(em.mac.span());
+                        }
                     }
                 }
+                return;
             }
-            return;
         }
 
         if self.is_sync() {
@@ -299,13 +299,16 @@ impl VisitMut for Rewriter<'_> {
                     }
                 }
                 Expr::Call(call) => {
-                    if let Expr::Path(func) = call.func.as_mut()
-                        && func.qself.is_none()
-                        && let Some(last) = func.path.segments.last_mut()
-                        && last.arguments.is_none()
-                        && let Some(to) = self.table.lookup_call(&last.ident)
-                    {
-                        last.ident = to;
+                    if let Expr::Path(func) = call.func.as_mut() {
+                        if func.qself.is_none() {
+                            if let Some(last) = func.path.segments.last_mut() {
+                                if last.arguments.is_none() {
+                                    if let Some(to) = self.table.lookup_call(&last.ident) {
+                                        last.ident = to;
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 Expr::Path(path) if path.qself.is_none() => {
@@ -357,13 +360,16 @@ impl VisitMut for Rewriter<'_> {
 
     fn visit_attribute_mut(&mut self, attr: &mut Attribute) {
         // Doc comments follow the same substitutions as code, so intra-doc links and prose mentions track each variant's names.
-        if let Meta::NameValue(nv) = &mut attr.meta
-            && nv.path.is_ident("doc")
-            && let Expr::Lit(lit) = &mut nv.value
-            && let Lit::Str(text) = &mut lit.lit
-            && let Some(rewritten) = self.table.rewrite_doc_text(&text.value())
-        {
-            *text = LitStr::new(&rewritten, text.span());
+        if let Meta::NameValue(nv) = &mut attr.meta {
+            if nv.path.is_ident("doc") {
+                if let Expr::Lit(lit) = &mut nv.value {
+                    if let Lit::Str(text) = &mut lit.lit {
+                        if let Some(rewritten) = self.table.rewrite_doc_text(&text.value()) {
+                            *text = LitStr::new(&rewritten, text.span());
+                        }
+                    }
+                }
+            }
         }
         visit_mut::visit_attribute_mut(self, attr);
     }

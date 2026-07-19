@@ -5,8 +5,8 @@ use syn::parse::discouraged::Speculative;
 use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
 use syn::{
-    Attribute, Ident, Item, ItemEnum, ItemImpl, ItemStruct, ItemTrait, LitBool, LitStr, Signature,
-    Token, Type, Visibility, braced, parenthesized,
+    braced, parenthesized, Attribute, Ident, Item, ItemEnum, ItemImpl, ItemStruct, ItemTrait,
+    LitBool, LitStr, Signature, Token, Type, Visibility,
 };
 
 /// How the async variant of a trait / impl is emitted.
@@ -683,14 +683,13 @@ impl Config {
     }
 
     pub fn validate_effective(&self) -> syn::Result<()> {
-        if let Some((span, _)) = &self.async_.send
-            && self.flavor() != Flavor::AsyncTrait
-        {
-            return Err(syn::Error::new(
-                *span,
-                "`async(send = ...)` requires `async(flavor = async_trait)`; native \
-                 `async fn` infers the future's `Send`-ness from the body",
-            ));
+        if let Some((span, _)) = &self.async_.send {
+            if self.flavor() != Flavor::AsyncTrait {
+                return Err(syn::Error::new(
+                    *span,
+                    "`async(send = ...)` requires `async(flavor = async_trait)`",
+                ));
+            }
         }
         validate_declaration_options(
             "sync",
