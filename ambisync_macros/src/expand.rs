@@ -543,7 +543,7 @@ fn emit_variant(
                 }
             }
             if variant.is_sync() {
-                if let Some((_, trait_path, _)) = &mut item_impl.trait_ {
+                if let Some((trait_path, _)) = &mut item_impl.trait_ {
                     table.subst_path(trait_path, false);
                 }
             }
@@ -895,10 +895,12 @@ fn normalize_signature_only_members(items: &mut [ImplItem]) {
         } = member;
         let marker = Ident::new(SIGNATURE_ONLY_MARKER, proc_macro2::Span::call_site());
         attrs.push(parse_quote!(#[#marker]));
+        let mut modifiers = syn::FnModifiers::default();
+        modifiers.defaultness = defaultness;
         *item = ImplItem::Fn(ImplItemFn {
             attrs,
             vis,
-            defaultness,
+            modifiers,
             sig,
             block: parse_quote!({}),
         });
@@ -922,10 +924,11 @@ fn restore_signature_only_members(items: &mut [ImplItem]) {
         let ImplItemFn {
             attrs,
             vis,
-            defaultness,
+            modifiers,
             sig,
             ..
         } = &*method;
+        let defaultness = &modifiers.defaultness;
         *item = ImplItem::Verbatim(quote!(#(#attrs)* #vis #defaultness #sig;));
     }
 }
