@@ -191,6 +191,66 @@ async fn send_cfg_is_send_on_native() {
     assert_eq!(assert_send(obj.async_cfg_value()).await, 7);
 }
 
+// `#[sync_name(...)]` gives one trait/impl method an exact sync name. It is the only way to
+// rename a non-async method that carries an async name (`async_reader` returns the async reader
+// rather than a future), and it overrides the `fns(...)` pattern for an async method.
+// Calls in other bodies follow the overrides.
+pub struct Reader;
+pub struct AsyncReader;
+
+impl Reader {
+    fn get(&self) -> u32 {
+        5
+    }
+}
+impl AsyncReader {
+    async fn get(&self) -> u32 {
+        5
+    }
+}
+
+pub struct Repo;
+
+#[ambisync(sync(fns("async_{}"), types("Async{}")), async(feature = "async"))]
+pub trait AsyncSource {
+    /// Synchronous, but it belongs to the async API: it returns an [`AsyncReader`], not a future.
+    #[sync_name(reader)]
+    fn async_reader(&self) -> AsyncReader;
+
+    /// `sync_name` beats the `fns("async_{}")` pattern, which would have emitted `read`.
+    #[sync_name(read_blocking)]
+    async fn async_read(&self) -> u32 {
+        self.async_reader().get().await
+    }
+
+    async fn async_read_twice(&self) -> u32 {
+        self.async_read().await * 2
+    }
+}
+
+#[ambisync(sync(fns("async_{}"), types("Async{}")), async(feature = "async"))]
+impl AsyncSource for Repo {
+    #[sync_name(reader)]
+    fn async_reader(&self) -> AsyncReader {
+        AsyncReader
+    }
+}
+
+#[test]
+fn sync_name_gives_exact_sync_method_names() {
+    assert_eq!(Repo.reader().get(), 5);
+    assert_eq!(Repo.read_blocking(), 5);
+    assert_eq!(Repo.read_twice(), 10);
+}
+
+#[cfg(feature = "async")]
+#[tokio::test]
+async fn sync_name_leaves_async_method_names_unchanged() {
+    assert_eq!(Repo.async_reader().get().await, 5);
+    assert_eq!(Repo.async_read().await, 5);
+    assert_eq!(Repo.async_read_twice().await, 10);
+}
+
 // Generic trait paths in trait-impl targets retain/substitute their generic arguments rather than being limited to bare identifiers.
 pub struct GenericHolder<T>(T);
 pub struct AsyncGenericHolder<T>(T);

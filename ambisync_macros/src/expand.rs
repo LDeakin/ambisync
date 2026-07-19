@@ -259,6 +259,18 @@ fn emit_variant(
         Item::Trait(item_trait) => {
             passthrough_attrs(&mut item_trait.attrs, variant)?;
             filter_trait_items(&mut item_trait.items, variant);
+            let mut member_sync_names = Vec::new();
+            for trait_item in &mut item_trait.items {
+                if let TraitItem::Fn(method) = trait_item
+                    && let Some(sync_name) = take_sync_name(&mut method.attrs)?
+                {
+                    let source_name = method.sig.ident.clone();
+                    if variant.is_sync() {
+                        table.add_item_call(&source_name, &sync_name);
+                    }
+                    member_sync_names.push((source_name, sync_name));
+                }
+            }
             let source_trait_ident = item_trait.ident.clone();
             let async_trait_ident = cfg.async_.declaration.as_ref().map_or_else(
                 || async_ident(cfg.async_.name.as_ref(), &source_trait_ident),
@@ -288,15 +300,13 @@ fn emit_variant(
             for trait_item in &mut item_trait.items {
                 if let TraitItem::Fn(method) = trait_item {
                     passthrough_attrs(&mut method.attrs, variant)?;
-                    if method.sig.asyncness.is_none() {
-                        continue;
-                    }
-                    if variant.is_sync() {
-                        method.sig.asyncness = None;
-                        let sync_name = cfg.sync.sync_fn_ident(None, &method.sig.ident)?;
-                        table.add_auto_call(&method.sig.ident, &sync_name);
-                        method.sig.ident = sync_name;
-                    }
+                    rewrite_method_signature(
+                        &mut method.sig,
+                        &member_sync_names,
+                        cfg,
+                        variant,
+                        &mut table,
+                    )?;
                 }
             }
             item_trait.ident = if variant.is_sync() {
@@ -317,18 +327,28 @@ fn emit_variant(
             passthrough_attrs(&mut item_impl.attrs, variant)?;
             normalize_signature_only_members(&mut item_impl.items);
             filter_impl_items(&mut item_impl.items, variant);
+            let mut member_sync_names = Vec::new();
+            for impl_item in &mut item_impl.items {
+                if let ImplItem::Fn(method) = impl_item
+                    && let Some(sync_name) = take_sync_name(&mut method.attrs)?
+                {
+                    let source_name = method.sig.ident.clone();
+                    if variant.is_sync() {
+                        table.add_item_call(&source_name, &sync_name);
+                    }
+                    member_sync_names.push((source_name, sync_name));
+                }
+            }
             for impl_item in &mut item_impl.items {
                 if let ImplItem::Fn(method) = impl_item {
                     passthrough_attrs(&mut method.attrs, variant)?;
-                    if method.sig.asyncness.is_none() {
-                        continue;
-                    }
-                    if variant.is_sync() {
-                        method.sig.asyncness = None;
-                        let sync_name = cfg.sync.sync_fn_ident(None, &method.sig.ident)?;
-                        table.add_auto_call(&method.sig.ident, &sync_name);
-                        method.sig.ident = sync_name;
-                    }
+                    rewrite_method_signature(
+                        &mut method.sig,
+                        &member_sync_names,
+                        cfg,
+                        variant,
+                        &mut table,
+                    )?;
                 }
             }
             if variant.is_sync()
@@ -727,6 +747,59 @@ fn filter_impl_items(items: &mut Vec<ImplItem>, variant: Variant) {
         };
         keep_for_variant(attrs, variant)
     });
+}
+
+fn rewrite_method_signature(
+    signature: &mut syn::Signature,
+    member_sync_names: &[(Ident, Ident)],
+    cfg: &Config,
+    variant: Variant,
+    table: &mut SubstTable,
+) -> syn::Result<()> {
+    if !variant.is_sync() {
+        return Ok(());
+    }
+
+    let source_name = signature.ident.clone();
+    let explicit_sync_name = member_sync_names
+        .iter()
+        .find(|(source, _)| *source == source_name)
+        .map(|(_, sync)| sync.clone());
+    if signature.asyncness.is_some() {
+        signature.asyncness = None;
+        let sync_name = if let Some(sync_name) = explicit_sync_name {
+            sync_name
+        } else {
+            cfg.sync.sync_fn_ident(None, &source_name)?
+        };
+        table.add_auto_call(&source_name, &sync_name);
+        signature.ident = sync_name;
+    } else if let Some(sync_name) = explicit_sync_name {
+        signature.ident = sync_name;
+    }
+    Ok(())
+}
+
+/// Remove and parse a `#[sync_name(...)]` member-level sync name override.
+fn take_sync_name(attrs: &mut Vec<Attribute>) -> syn::Result<Option<Ident>> {
+    let mut sync_name = None;
+    let mut out = Vec::with_capacity(attrs.len());
+    for attr in attrs.drain(..) {
+        let path = attr.path();
+        if path.is_ident("sync_name") || is_ambisync_path(path, "sync_name") {
+            if sync_name.is_some() {
+                return Err(syn::Error::new_spanned(
+                    &attr,
+                    "duplicate `#[sync_name(...)]` on method",
+                ));
+            }
+            sync_name = Some(attr.parse_args::<Ident>()?);
+        } else {
+            out.push(attr);
+        }
+    }
+    *attrs = out;
+    Ok(sync_name)
 }
 
 /// Resolve `#[sync_attr(...)]` / `#[async_attr(...)]` passthrough attributes: the matching variant's payload is unwrapped into a real attribute, the other variant's is dropped.

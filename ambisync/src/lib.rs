@@ -66,6 +66,7 @@
 //! | `types("Async{}", ...)` | ✓ | — | pattern entry: covers every matching type ident (`AsyncStore` → `Store`) |
 //! | `fns(f => g, ...)` | ✓ | — | fn-namespace rename table: names the annotated fn/methods and renames calls (the `.await` lives in the source) |
 //! | `fns("{}_async", ...)` | ✓ | — | pattern entry: covers every matching fn name (`read_async` → `read`) |
+//! | `#[sync_name(name)]` | ✓ | — | exact sync name for one trait/impl method, including a non-async method in an async API |
 //! | `#[sync_bounds(...)]` / `#[async_bounds(...)]` | ✓ | ✓ | replace a generic type parameter's bounds for one variant; an empty list removes all bounds |
 //! | `flavor = async_fn \| async_trait` | — | ✓ | async trait/impl emission style |
 //! | `send = true \| false \| cfg(...)` | — | ✓ | with `async_trait`: `Send`-ness of the emission (default `Send`) |
@@ -82,12 +83,46 @@
 //!
 //! - **Traits**: Rename the trait via `name`/`types(...)` and methods via `fns(...)`.
 //!   Default bodies follow the renames.
+//!   Use `#[sync_name(name)]` for an exact per-method override, including methods that are not themselves `async fn`.
 //!   The async trait gets `#[allow(async_fn_in_trait)]`, or you can use `async(flavor = async_trait)`.
 //! - **Impls**: Rewrite the self type and trait path via `types(...)`.
 //!   Rename methods via `fns(...)`.
+//!   `#[sync_name(name)]` overrides `fns(...)` for one method and rewrites calls to that method.
 //!   Calls between renamed methods follow automatically.
 //!   The identity pattern `fns("{}")` keeps method names unchanged when the sync and async types already provide separate namespaces.
 //! - **Structs / Enums**: The type is renamed and field types are substituted.
+//!
+//! `#[sync_name(name)]` states one method's exact sync name at the method itself, taking precedence over the `fns(...)` table.
+//! It also covers methods that are not `async fn`, which the table never renames: a synchronous method may still carry an async name, for example when it returns an async-capable reader rather than a future.
+//! Calls and doc mentions follow the override:
+//!
+//! ```
+//! # use ambisync::ambisync;
+//! # pub struct Store; pub struct AsyncStore;
+//! # pub struct Reader; pub struct AsyncReader;
+//! # impl Reader { fn get(&self) -> u32 { 7 } }
+//! # impl AsyncReader { async fn get(&self) -> u32 { 7 } }
+//! #[ambisync(sync(fns("async_{}"), types("Async{}")))]
+//! impl AsyncStore {
+//!     // Synchronous, but it belongs to the async API: it returns the async reader, not a future.
+//!     #[sync_name(reader)]
+//!     fn async_reader(&self) -> AsyncReader {
+//!         AsyncReader
+//!     }
+//!
+//!     async fn async_read(&self) -> u32 {
+//!         self.async_reader().get().await
+//!     }
+//! }
+//!
+//! // Emits the impl as written, plus:
+//! //   impl Store {
+//! //       fn reader(&self) -> Reader { Reader }
+//! //       fn read(&self) -> u32 { self.reader().get() }
+//! //   }
+//! # assert_eq!(Store.reader().get(), 7);
+//! # assert_eq!(Store.read(), 7);
+//! ```
 //!
 //! # Divergent code
 //!

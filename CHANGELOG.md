@@ -14,4 +14,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `sync(types(...))` / `sync(fns(...))` rename tables: exact `A => B` entries and string-literal pattern entries (`types("Async{}")`, `fns("{}_async", "create_async_{} => create_{}")`) that both name the annotated items and rename matching types/calls/doc mentions, with exact entries taking precedence over patterns.
 - Marker macros `alt!`, `sync_only!`, `async_only!` and the `#[sync_only]` / `#[async_only]` / `#[sync_attr(...)]` / `#[async_attr(...)]` helper attributes for divergent code.
 - `#[sync_bounds(...)]` / `#[async_bounds(...)]` helper attributes for variant-specific generic type parameter bounds, including empty overrides that remove all bounds.
+- `#[sync_name(...)]` for assigning an exact sync name to an individual trait or impl method, including non-async methods in an async API; calls follow the override automatically.
 - Best-effort macro-body rewriting also renames turbofish call spellings (`name::<T>(...)`), not just `name(...)`.
