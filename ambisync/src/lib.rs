@@ -67,6 +67,7 @@
 //! | `fns(f => g, ...)` | ✓ | — | fn-namespace rename table: names the annotated fn/methods and renames calls (the `.await` lives in the source) |
 //! | `fns("{}_async", ...)` | ✓ | — | pattern entry: covers every matching fn name (`read_async` → `read`) |
 //! | `#[sync_name(name)]` | ✓ | — | exact sync name for one trait/impl method, including a non-async method in an async API |
+//! | `#[sync_signature(fn ...)]` | ✓ | — | complete verbatim sync signature for one trait/impl method; the body remains shared |
 //! | `#[sync_bounds(...)]` / `#[async_bounds(...)]` | ✓ | ✓ | replace a generic type parameter's bounds for one variant; an empty list removes all bounds |
 //! | `flavor = async_fn \| async_trait` | — | ✓ | async trait/impl emission style |
 //! | `send = true \| false \| cfg(...)` | — | ✓ | with `async_trait`: `Send`-ness of the emission (default `Send`) |
@@ -122,6 +123,20 @@
 //! //   }
 //! # assert_eq!(Store.reader().get(), 7);
 //! # assert_eq!(Store.read(), 7);
+//! ```
+//!
+//! When a method's sync and async signatures differ beyond naming and asyncness, use
+//! `#[sync_signature(fn ...)]`. The declared sync signature is emitted verbatim while the method
+//! body is still derived from the async-written source. This is useful for APIs whose async
+//! futures require input lifetimes to be tied together even though the sync call does not:
+//!
+//! ```
+//! # use ambisync::ambisync;
+//! #[ambisync(sync(types("Async{}")), async(feature = "async"))]
+//! trait AsyncBorrow {
+//!     #[sync_signature(fn borrow<'a>(&'a self, input: &str) -> &'a str)]
+//!     async fn borrow<'a>(&'a self, input: &'a str) -> &'a str;
+//! }
 //! ```
 //!
 //! # Divergent code

@@ -251,6 +251,53 @@ async fn sync_name_leaves_async_method_names_unchanged() {
     assert_eq!(Repo.async_read_twice().await, 10);
 }
 
+// `#[sync_signature(fn ...)]` keeps the method body shared while allowing lifetime relationships
+// in the sync API to differ from the async API. Its method name also participates in call mapping.
+pub struct BorrowSource(&'static str);
+
+#[ambisync(sync(fns("async_{}"), types("Async{}")), async(feature = "async"))]
+pub trait AsyncBorrowApi {
+    #[sync_signature(fn borrow<'a>(&'a self, input: &str) -> &'a str)]
+    async fn async_borrow<'a>(&'a self, input: &'a str) -> &'a str;
+
+    async fn async_len(&self, input: &str) -> usize {
+        self.async_borrow(input).await.len()
+    }
+}
+
+#[ambisync(
+    sync(fns("async_{}"), types(AsyncBorrowApi => BorrowApi)),
+    async(feature = "async"),
+)]
+impl AsyncBorrowApi for BorrowSource {
+    #[sync_signature(fn borrow<'a>(&'a self, input: &str) -> &'a str)]
+    async fn async_borrow<'a>(&'a self, input: &'a str) -> &'a str {
+        let _ = input;
+        self.0
+    }
+}
+
+#[test]
+fn sync_signature_can_relax_an_input_lifetime() {
+    let source = BorrowSource("borrowed from self");
+    let output;
+    {
+        let short_lived = String::from("short");
+        output = source.borrow(&short_lived);
+        assert_eq!(source.len(&short_lived), output.len());
+    }
+    assert_eq!(output, "borrowed from self");
+}
+
+#[cfg(feature = "async")]
+#[tokio::test]
+async fn sync_signature_preserves_the_async_signature() {
+    let source = BorrowSource("borrowed from self");
+    let input = String::from("short");
+    assert_eq!(source.async_borrow(&input).await, "borrowed from self");
+    assert_eq!(source.async_len(&input).await, "borrowed from self".len());
+}
+
 // Generic trait paths in trait-impl targets retain/substitute their generic arguments rather than being limited to bare identifiers.
 pub struct GenericHolder<T>(T);
 pub struct AsyncGenericHolder<T>(T);

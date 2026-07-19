@@ -212,6 +212,7 @@ fn emit_variant(
     is_test: bool,
 ) -> syn::Result<TokenStream> {
     let mut item = source.clone();
+    let mut member_sync_signatures = Vec::new();
     let mut table = if variant.is_sync() {
         SubstTable::build(cfg)
     } else {
@@ -262,7 +263,23 @@ fn emit_variant(
             let mut member_sync_names = Vec::new();
             for trait_item in &mut item_trait.items {
                 if let TraitItem::Fn(method) = trait_item {
-                    if let Some(sync_name) = take_sync_name(&mut method.attrs)? {
+                    let sync_name = take_sync_name(&mut method.attrs)?;
+                    let sync_signature = take_sync_signature(&mut method.attrs)?;
+                    if sync_name.is_some() && sync_signature.is_some() {
+                        return Err(syn::Error::new_spanned(
+                            &method.sig,
+                            "`#[sync_name(...)]` and `#[sync_signature(fn ...)]` cannot be used on the same method",
+                        ));
+                    }
+                    if let Some(sync_signature) = sync_signature {
+                        let source_name = method.sig.ident.clone();
+                        let sync_name = sync_signature.ident.clone();
+                        if variant.is_sync() {
+                            table.add_item_call(&source_name, &sync_name);
+                            member_sync_signatures.push(sync_signature);
+                        }
+                        member_sync_names.push((source_name, sync_name));
+                    } else if let Some(sync_name) = sync_name {
                         let source_name = method.sig.ident.clone();
                         if variant.is_sync() {
                             table.add_item_call(&source_name, &sync_name);
@@ -330,7 +347,23 @@ fn emit_variant(
             let mut member_sync_names = Vec::new();
             for impl_item in &mut item_impl.items {
                 if let ImplItem::Fn(method) = impl_item {
-                    if let Some(sync_name) = take_sync_name(&mut method.attrs)? {
+                    let sync_name = take_sync_name(&mut method.attrs)?;
+                    let sync_signature = take_sync_signature(&mut method.attrs)?;
+                    if sync_name.is_some() && sync_signature.is_some() {
+                        return Err(syn::Error::new_spanned(
+                            &method.sig,
+                            "`#[sync_name(...)]` and `#[sync_signature(fn ...)]` cannot be used on the same method",
+                        ));
+                    }
+                    if let Some(sync_signature) = sync_signature {
+                        let source_name = method.sig.ident.clone();
+                        let sync_name = sync_signature.ident.clone();
+                        if variant.is_sync() {
+                            table.add_item_call(&source_name, &sync_name);
+                            member_sync_signatures.push(sync_signature);
+                        }
+                        member_sync_names.push((source_name, sync_name));
+                    } else if let Some(sync_name) = sync_name {
                         let source_name = method.sig.ident.clone();
                         if variant.is_sync() {
                             table.add_item_call(&source_name, &sync_name);
@@ -442,6 +475,9 @@ fn emit_variant(
     rewriter.visit_item_mut(&mut item);
     if let Some(err) = rewriter.take_error() {
         return Err(err);
+    }
+    if variant.is_sync() {
+        apply_sync_signatures(&mut item, member_sync_signatures);
     }
 
     apply_variant_metadata(&mut item, cfg, variant, is_test)?;
@@ -800,6 +836,59 @@ fn take_sync_name(attrs: &mut Vec<Attribute>) -> syn::Result<Option<Ident>> {
     }
     *attrs = out;
     Ok(sync_name)
+}
+
+/// Remove and parse a `#[sync_signature(fn ...)]` member-level sync signature override.
+fn take_sync_signature(attrs: &mut Vec<Attribute>) -> syn::Result<Option<syn::Signature>> {
+    let mut sync_signature = None;
+    let mut out = Vec::with_capacity(attrs.len());
+    for attr in attrs.drain(..) {
+        let path = attr.path();
+        if path.is_ident("sync_signature") || is_ambisync_path(path, "sync_signature") {
+            if sync_signature.is_some() {
+                return Err(syn::Error::new_spanned(
+                    &attr,
+                    "duplicate `#[sync_signature(fn ...)]` on method",
+                ));
+            }
+            let signature = attr.parse_args::<syn::Signature>()?;
+            if signature.asyncness.is_some() {
+                return Err(syn::Error::new_spanned(
+                    &signature,
+                    "`#[sync_signature(fn ...)]` must declare a synchronous method",
+                ));
+            }
+            sync_signature = Some(signature);
+        } else {
+            out.push(attr);
+        }
+    }
+    *attrs = out;
+    Ok(sync_signature)
+}
+
+/// Apply verbatim sync signatures after body/type rewriting, so the declarations themselves are
+/// not passed through the async-to-sync substitution table.
+fn apply_sync_signatures(item: &mut Item, signatures: Vec<syn::Signature>) {
+    for signature in signatures {
+        match item {
+            Item::Trait(item_trait) => {
+                if let Some(TraitItem::Fn(method)) = item_trait.items.iter_mut().find(
+                    |item| matches!(item, TraitItem::Fn(method) if method.sig.ident == signature.ident),
+                ) {
+                    method.sig = signature;
+                }
+            }
+            Item::Impl(item_impl) => {
+                if let Some(ImplItem::Fn(method)) = item_impl.items.iter_mut().find(
+                    |item| matches!(item, ImplItem::Fn(method) if method.sig.ident == signature.ident),
+                ) {
+                    method.sig = signature;
+                }
+            }
+            _ => unreachable!("member sync signatures only occur on traits and impls"),
+        }
+    }
 }
 
 /// Resolve `#[sync_attr(...)]` / `#[async_attr(...)]` passthrough attributes: the matching variant's payload is unwrapped into a real attribute, the other variant's is dropped.
