@@ -11,3 +11,6 @@ readme = "README.md"
 repository = "https://github.com/LDeakin/ambisync"
 keywords = ["async", "sync", "macro", "generic"]
 categories = ["asynchronous", "rust-patterns"]
+
+[workspace.dependencies]
+ambisync_macros = { version = "0.1.0", path = "ambisync_macros" }

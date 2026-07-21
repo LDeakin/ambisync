@@ -13,7 +13,7 @@ categories.workspace = true
 documentation = "https://docs.rs/ambisync"
 
 [dependencies]
-ambisync_macros = { version = "0.1.0", path = "../ambisync_macros" }
+ambisync_macros = { workspace = true }
 
 [dev-dependencies]
 # For the `async(flavor = async_trait)` doctest.

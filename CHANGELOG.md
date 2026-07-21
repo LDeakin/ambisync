@@ -5,11 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [Unreleased](https://github.com/LDeakin/ambisync/compare/v0.1.0...HEAD)
 
-### Added
-- Add `#[sync_signature(fn ...)]` for trait and impl methods whose sync signature cannot be mechanically derived from the async signature
-- Add `#[ambisync::paired]` for deriving synchronous siblings of async methods that coexist in one mixed trait
+## [0.1.0](https://github.com/LDeakin/ambisync/releases/tag/v0.1.0) - 2026-07-21
 
 ### Added
 - `#[ambisync]`: emit an async and a mechanically derived sync variant of an async-written `fn`, `trait`, `impl`, `struct`, or `enum`.
@@ -20,3 +18,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `#[sync_bounds(...)]` / `#[async_bounds(...)]` helper attributes for variant-specific generic type parameter bounds, including empty overrides that remove all bounds.
 - `#[sync_name(...)]` for assigning an exact sync name to an individual trait or impl method, including non-async methods in an async API; calls follow the override automatically.
 - Best-effort macro-body rewriting also renames turbofish call spellings (`name::<T>(...)`), not just `name(...)`.
+- Add `#[sync_signature(fn ...)]` for trait and impl methods whose sync signature cannot be mechanically derived from the async signature
+- Add `#[ambisync::paired]` for deriving synchronous siblings of async methods that coexist in one mixed trait
