@@ -20,21 +20,36 @@ pub fn ambisync(args: TokenStream, input: TokenStream) -> syn::Result<TokenStrea
     expand_item(&item, &cfg, false)
 }
 
-/// Expand the async methods of a mixed sync/async trait in place.
+/// Expand the async methods of a mixed sync/async trait or impl in place.
 ///
-/// Ordinary trait members are emitted once. Each async method is emitted as written (and
-/// optionally feature-gated) alongside a mechanically derived synchronous sibling.
+/// Ordinary members are emitted once. Each async method is emitted as written (and optionally
+/// feature-gated) alongside a mechanically derived synchronous sibling.
+///
+/// Unlike `#[ambisync]`, a single item is emitted, so the `types(...)` table applies only inside
+/// the derived sync method bodies and signatures — never to the trait name or, for impls, to the
+/// impl header, which serves both APIs.
 pub fn paired(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> {
     let cfg = Config::parse_args(args)?;
     cfg.validate_effective()?;
     validate_paired_config(&cfg)?;
 
-    let mut item: ItemTrait = syn::parse2(input)?;
+    let item: Item = syn::parse2(input)?;
+    match item {
+        Item::Trait(item_trait) => paired_trait(item_trait, &cfg),
+        Item::Impl(item_impl) => paired_impl(item_impl, &cfg),
+        other => Err(syn::Error::new_spanned(
+            other,
+            "#[ambisync::paired] supports `trait` and `impl` items",
+        )),
+    }
+}
+
+fn paired_trait(mut item: ItemTrait, cfg: &Config) -> syn::Result<TokenStream> {
     let mut output_items = Vec::with_capacity(item.items.len());
     let mut has_async_methods = false;
 
     for trait_item in std::mem::take(&mut item.items) {
-        let TraitItem::Fn(mut source) = trait_item else {
+        let TraitItem::Fn(source) = trait_item else {
             output_items.push(trait_item);
             continue;
         };
@@ -44,70 +59,21 @@ pub fn paired(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream>
         }
         has_async_methods = true;
 
-        let sync_name = take_sync_name(&mut source.attrs)?;
-        let sync_signature = take_sync_signature(&mut source.attrs)?;
-        if sync_name.is_some() && sync_signature.is_some() {
-            return Err(syn::Error::new_spanned(
-                &source.sig,
-                "`#[sync_name(...)]` and `#[sync_signature(fn ...)]` cannot be used on the same method",
-            ));
-        }
-
-        let source_name = source.sig.ident.clone();
-        let sync_name = if let Some(signature) = &sync_signature {
-            signature.ident.clone()
-        } else if let Some(sync_name) = sync_name {
-            sync_name
-        } else {
-            cfg.sync.sync_fn_ident(None, &source_name)?
-        };
-        ensure_distinct(&sync_name, &source_name)?;
-
-        let mut sync_method = source.clone();
-        passthrough_attrs(&mut sync_method.attrs, Variant::Sync)?;
-        let mut table = SubstTable::build(&cfg);
-        rewrite_method_signature(
-            &mut sync_method.sig,
-            &[(source_name.clone(), sync_name.clone())],
-            &cfg,
-            Variant::Sync,
-            &mut table,
-        )?;
-        let mut sync_item = TraitItem::Fn(sync_method);
-        let mut rewriter = Rewriter::new(Variant::Sync, &table);
-        rewriter.visit_trait_item_mut(&mut sync_item);
-        if let Some(err) = rewriter.take_error() {
-            return Err(err);
-        }
-        let TraitItem::Fn(mut sync_method) = sync_item else {
-            unreachable!("rewriting a trait method preserves its item kind")
-        };
-        if let Some(signature) = sync_signature {
-            sync_method.sig = signature;
-        }
-        if let Some(feature) = &cfg.sync.gate {
-            sync_method
-                .attrs
-                .insert(0, parse_quote!(#[cfg(feature = #feature)]));
-        }
+        let (sync_method, async_method) = paired_methods(source, cfg, |method, variant, table| {
+            let mut item = TraitItem::Fn(method);
+            let mut rewriter = Rewriter::new(variant, table);
+            rewriter.visit_trait_item_mut(&mut item);
+            rewriter.take_error().map_or_else(
+                || {
+                    let TraitItem::Fn(method) = item else {
+                        unreachable!("rewriting a trait method preserves its item kind")
+                    };
+                    Ok(method)
+                },
+                Err,
+            )
+        })?;
         output_items.push(TraitItem::Fn(sync_method));
-
-        passthrough_attrs(&mut source.attrs, Variant::Async)?;
-        let mut async_item = TraitItem::Fn(source);
-        let async_table = SubstTable::default();
-        let mut rewriter = Rewriter::new(Variant::Async, &async_table);
-        rewriter.visit_trait_item_mut(&mut async_item);
-        if let Some(err) = rewriter.take_error() {
-            return Err(err);
-        }
-        let TraitItem::Fn(mut async_method) = async_item else {
-            unreachable!("rewriting a trait method preserves its item kind")
-        };
-        if let Some(feature) = &cfg.async_.gate {
-            async_method
-                .attrs
-                .insert(0, parse_quote!(#[cfg(feature = #feature)]));
-        }
         output_items.push(TraitItem::Fn(async_method));
     }
 
@@ -115,10 +81,142 @@ pub fn paired(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream>
     if has_async_methods {
         match cfg.flavor() {
             Flavor::AsyncFn => item.attrs.push(parse_quote!(#[allow(async_fn_in_trait)])),
-            Flavor::AsyncTrait => item.attrs.extend(paired_async_trait_attrs(&cfg)),
+            Flavor::AsyncTrait => item.attrs.extend(paired_async_trait_attrs(cfg)),
         }
     }
     Ok(quote!(#item))
+}
+
+fn paired_impl(mut item: syn::ItemImpl, cfg: &Config) -> syn::Result<TokenStream> {
+    normalize_signature_only_members(&mut item.items);
+    let mut output_items = Vec::with_capacity(item.items.len());
+    let mut has_async_methods = false;
+
+    for impl_item in std::mem::take(&mut item.items) {
+        let ImplItem::Fn(source) = impl_item else {
+            output_items.push(impl_item);
+            continue;
+        };
+        if source.sig.asyncness.is_none() {
+            output_items.push(ImplItem::Fn(source));
+            continue;
+        }
+        has_async_methods = true;
+
+        let (sync_method, async_method) = paired_methods(source, cfg, |method, variant, table| {
+            let mut item = ImplItem::Fn(method);
+            let mut rewriter = Rewriter::new(variant, table);
+            rewriter.visit_impl_item_mut(&mut item);
+            rewriter.take_error().map_or_else(
+                || {
+                    let ImplItem::Fn(method) = item else {
+                        unreachable!("rewriting an impl method preserves its item kind")
+                    };
+                    Ok(method)
+                },
+                Err,
+            )
+        })?;
+        output_items.push(ImplItem::Fn(sync_method));
+        output_items.push(ImplItem::Fn(async_method));
+    }
+
+    item.items = output_items;
+    restore_signature_only_members(&mut item.items);
+    if has_async_methods && matches!(cfg.flavor(), Flavor::AsyncTrait) {
+        item.attrs.extend(paired_async_trait_attrs(cfg));
+    }
+    Ok(quote!(#item))
+}
+
+/// Derive the synchronous sibling of one async method and return it beside the async original.
+///
+/// `rewrite` applies the variant [`Rewriter`] to a method in its own item kind, which is the only
+/// part that differs between traits and impls.
+fn paired_methods<M, F>(mut source: M, cfg: &Config, rewrite: F) -> syn::Result<(M, M)>
+where
+    M: PairedMethod + Clone,
+    F: Fn(M, Variant, &SubstTable) -> syn::Result<M>,
+{
+    let sync_name = take_sync_name(source.attrs_mut())?;
+    let sync_signature = take_sync_signature(source.attrs_mut())?;
+    if sync_name.is_some() && sync_signature.is_some() {
+        return Err(syn::Error::new_spanned(
+            source.sig(),
+            "`#[sync_name(...)]` and `#[sync_signature(fn ...)]` cannot be used on the same method",
+        ));
+    }
+
+    let source_name = source.sig().ident.clone();
+    let sync_name = if let Some(signature) = &sync_signature {
+        signature.ident.clone()
+    } else if let Some(sync_name) = sync_name {
+        sync_name
+    } else {
+        cfg.sync.sync_fn_ident(None, &source_name)?
+    };
+    ensure_distinct(&sync_name, &source_name)?;
+
+    let mut sync_method = source.clone();
+    passthrough_attrs(sync_method.attrs_mut(), Variant::Sync)?;
+    let mut table = SubstTable::build(cfg);
+    rewrite_method_signature(
+        sync_method.sig_mut(),
+        &[(source_name, sync_name)],
+        cfg,
+        Variant::Sync,
+        &mut table,
+    )?;
+    let mut sync_method = rewrite(sync_method, Variant::Sync, &table)?;
+    if let Some(signature) = sync_signature {
+        *sync_method.sig_mut() = signature;
+    }
+    if let Some(feature) = &cfg.sync.gate {
+        sync_method
+            .attrs_mut()
+            .insert(0, parse_quote!(#[cfg(feature = #feature)]));
+    }
+
+    passthrough_attrs(source.attrs_mut(), Variant::Async)?;
+    let mut async_method = rewrite(source, Variant::Async, &SubstTable::default())?;
+    if let Some(feature) = &cfg.async_.gate {
+        async_method
+            .attrs_mut()
+            .insert(0, parse_quote!(#[cfg(feature = #feature)]));
+    }
+
+    Ok((sync_method, async_method))
+}
+
+/// The parts of a trait or impl method that [`paired_methods`] manipulates uniformly.
+trait PairedMethod {
+    fn attrs_mut(&mut self) -> &mut Vec<Attribute>;
+    fn sig(&self) -> &syn::Signature;
+    fn sig_mut(&mut self) -> &mut syn::Signature;
+}
+
+impl PairedMethod for syn::TraitItemFn {
+    fn attrs_mut(&mut self) -> &mut Vec<Attribute> {
+        &mut self.attrs
+    }
+    fn sig(&self) -> &syn::Signature {
+        &self.sig
+    }
+    fn sig_mut(&mut self) -> &mut syn::Signature {
+        &mut self.sig
+    }
+}
+
+impl PairedMethod for ImplItemFn {
+    fn attrs_mut(&mut self) -> &mut Vec<Attribute> {
+        &mut self.attrs
+    }
+    fn sig(&self) -> &syn::Signature {
+        &self.sig
+    }
+    fn sig_mut(&mut self) -> &mut syn::Signature {
+        &mut self.sig
+    }
 }
 
 fn validate_paired_config(cfg: &Config) -> syn::Result<()> {
