@@ -153,6 +153,19 @@
 //! Because one item is emitted, `types(...)` applies only within the derived sync methods — it
 //! never rewrites the trait name, nor an impl's trait path or self type, which serve both APIs.
 //!
+//! `#[sync_only]` / `#[async_only]` on an `async fn` emit only that variant instead of a pair,
+//! for APIs where just one side has a specialised implementation:
+//!
+//! ```
+//! # struct AsyncHandle;
+//! # impl AsyncHandle { async fn load(&self) -> u32 { 1 } }
+//! #[ambisync::paired(sync(fns("async_{}")), async(feature = "async"))]
+//! trait OneSided {
+//!     #[async_only]
+//!     async fn async_streaming_read(&self, handle: &AsyncHandle) -> u32;
+//! }
+//! ```
+//!
 //! `#[sync_name(name)]` states one method's exact sync name at the method itself, taking precedence over the `fns(...)` table.
 //! It also covers methods that are not `async fn`, which the table never renames: a synchronous method may still carry an async name, for example when it returns an async-capable reader rather than a future.
 //! Calls and doc mentions follow the override:

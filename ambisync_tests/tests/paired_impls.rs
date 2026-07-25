@@ -155,6 +155,51 @@ async fn paired_inherent_impl_keeps_the_async_method() {
     assert_eq!(Inherent.async_value(&AsyncHandle).await, 7);
 }
 
+// `#[sync_only]` / `#[async_only]` on an async method of a paired item emit only that variant,
+// rather than a sync/async pair. This covers APIs where only one side has a specialised
+// implementation and the other must fall back.
+#[ambisync::paired(
+    sync(fns("async_{}"), types("Async{}")),
+    async(feature = "async", flavor = async_trait),
+)]
+pub trait OneSided: Sync {
+    #[async_only]
+    async fn async_streaming_read(&self, handle: &AsyncHandle) -> u32;
+
+    #[sync_only]
+    async fn async_blocking_read(&self, handle: &AsyncHandle) -> u32;
+}
+
+pub struct OneSidedImpl;
+
+#[ambisync::paired(
+    sync(fns("async_{}"), types("Async{}")),
+    async(feature = "async", flavor = async_trait),
+)]
+impl OneSided for OneSidedImpl {
+    #[async_only]
+    async fn async_streaming_read(&self, handle: &AsyncHandle) -> u32 {
+        handle.load().await + 1
+    }
+
+    #[sync_only]
+    async fn async_blocking_read(&self, handle: &AsyncHandle) -> u32 {
+        handle.load().await + 2
+    }
+}
+
+#[test]
+fn paired_sync_only_method_exists_only_on_the_sync_side() {
+    // `async_blocking_read` is derived to a sync `blocking_read` taking the sync handle.
+    assert_eq!(OneSidedImpl.blocking_read(&Handle), 9);
+}
+
+#[cfg(feature = "async")]
+#[tokio::test]
+async fn paired_async_only_method_exists_only_on_the_async_side() {
+    assert_eq!(OneSidedImpl.async_streaming_read(&AsyncHandle).await, 8);
+}
+
 // `ambisync::alt!` selects per-variant expressions inside paired impl bodies.
 pub struct Divergent;
 

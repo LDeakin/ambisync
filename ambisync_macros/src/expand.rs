@@ -49,7 +49,7 @@ fn paired_trait(mut item: ItemTrait, cfg: &Config) -> syn::Result<TokenStream> {
     let mut has_async_methods = false;
 
     for trait_item in std::mem::take(&mut item.items) {
-        let TraitItem::Fn(source) = trait_item else {
+        let TraitItem::Fn(mut source) = trait_item else {
             output_items.push(trait_item);
             continue;
         };
@@ -57,9 +57,7 @@ fn paired_trait(mut item: ItemTrait, cfg: &Config) -> syn::Result<TokenStream> {
             output_items.push(TraitItem::Fn(source));
             continue;
         }
-        has_async_methods = true;
-
-        let (sync_method, async_method) = paired_methods(source, cfg, |method, variant, table| {
+        let rewrite_trait_method = |method: syn::TraitItemFn, variant, table: &SubstTable| {
             let mut item = TraitItem::Fn(method);
             let mut rewriter = Rewriter::new(variant, table);
             rewriter.visit_trait_item_mut(&mut item);
@@ -72,7 +70,16 @@ fn paired_trait(mut item: ItemTrait, cfg: &Config) -> syn::Result<TokenStream> {
                 },
                 Err,
             )
-        })?;
+        };
+        if let Some(variant) = take_only_marker(&mut source.attrs)? {
+            has_async_methods |= !variant.is_sync();
+            let method = paired_only(source, cfg, variant, rewrite_trait_method)?;
+            output_items.push(TraitItem::Fn(method));
+            continue;
+        }
+        has_async_methods = true;
+
+        let (sync_method, async_method) = paired_methods(source, cfg, rewrite_trait_method)?;
         output_items.push(TraitItem::Fn(sync_method));
         output_items.push(TraitItem::Fn(async_method));
     }
@@ -93,7 +100,7 @@ fn paired_impl(mut item: syn::ItemImpl, cfg: &Config) -> syn::Result<TokenStream
     let mut has_async_methods = false;
 
     for impl_item in std::mem::take(&mut item.items) {
-        let ImplItem::Fn(source) = impl_item else {
+        let ImplItem::Fn(mut source) = impl_item else {
             output_items.push(impl_item);
             continue;
         };
@@ -101,9 +108,7 @@ fn paired_impl(mut item: syn::ItemImpl, cfg: &Config) -> syn::Result<TokenStream
             output_items.push(ImplItem::Fn(source));
             continue;
         }
-        has_async_methods = true;
-
-        let (sync_method, async_method) = paired_methods(source, cfg, |method, variant, table| {
+        let rewrite_impl_method = |method: ImplItemFn, variant, table: &SubstTable| {
             let mut item = ImplItem::Fn(method);
             let mut rewriter = Rewriter::new(variant, table);
             rewriter.visit_impl_item_mut(&mut item);
@@ -116,7 +121,16 @@ fn paired_impl(mut item: syn::ItemImpl, cfg: &Config) -> syn::Result<TokenStream
                 },
                 Err,
             )
-        })?;
+        };
+        if let Some(variant) = take_only_marker(&mut source.attrs)? {
+            has_async_methods |= !variant.is_sync();
+            let method = paired_only(source, cfg, variant, rewrite_impl_method)?;
+            output_items.push(ImplItem::Fn(method));
+            continue;
+        }
+        has_async_methods = true;
+
+        let (sync_method, async_method) = paired_methods(source, cfg, rewrite_impl_method)?;
         output_items.push(ImplItem::Fn(sync_method));
         output_items.push(ImplItem::Fn(async_method));
     }
@@ -127,6 +141,71 @@ fn paired_impl(mut item: syn::ItemImpl, cfg: &Config) -> syn::Result<TokenStream
         item.attrs.extend(paired_async_trait_attrs(cfg));
     }
     Ok(quote!(#item))
+}
+
+/// Take a `#[sync_only]` / `#[async_only]` marker off an async method, if present.
+///
+/// Returns the variant the method is restricted to. Unlike `#[ambisync]`, which emits two items
+/// and filters members per item, `#[ambisync::paired]` emits one item, so a marked `async fn`
+/// yields only that variant's form rather than a sync/async pair.
+fn take_only_marker(attrs: &mut Vec<Attribute>) -> syn::Result<Option<Variant>> {
+    let mut found = None;
+    let mut out = Vec::with_capacity(attrs.len());
+    for attr in attrs.drain(..) {
+        let path = attr.path();
+        let variant = if path.is_ident("sync_only") || is_ambisync_path(path, "sync_only") {
+            Some(Variant::Sync)
+        } else if path.is_ident("async_only") || is_ambisync_path(path, "async_only") {
+            Some(Variant::Async)
+        } else {
+            None
+        };
+        match variant {
+            Some(variant) => {
+                if found.is_some() {
+                    return Err(syn::Error::new_spanned(
+                        &attr,
+                        "duplicate `#[sync_only]` / `#[async_only]` on method",
+                    ));
+                }
+                found = Some(variant);
+            }
+            None => out.push(attr),
+        }
+    }
+    *attrs = out;
+    Ok(found)
+}
+
+/// Emit a single variant of a `#[sync_only]` / `#[async_only]` async method.
+///
+/// The sync form is derived (asyncness stripped, renames applied); the async form is emitted as
+/// written. Either way only one method is produced, and it carries that variant's feature gate.
+fn paired_only<M, F>(mut source: M, cfg: &Config, variant: Variant, rewrite: F) -> syn::Result<M>
+where
+    M: PairedMethod,
+    F: Fn(M, Variant, &SubstTable) -> syn::Result<M>,
+{
+    let table = if variant.is_sync() {
+        let mut table = SubstTable::build(cfg);
+        rewrite_method_signature(source.sig_mut(), &[], cfg, Variant::Sync, &mut table)?;
+        table
+    } else {
+        SubstTable::default()
+    };
+
+    let mut method = rewrite(source, variant, &table)?;
+    let gate = if variant.is_sync() {
+        &cfg.sync.gate
+    } else {
+        &cfg.async_.gate
+    };
+    if let Some(feature) = gate {
+        method
+            .attrs_mut()
+            .insert(0, parse_quote!(#[cfg(feature = #feature)]));
+    }
+    Ok(method)
 }
 
 /// Derive the synchronous sibling of one async method and return it beside the async original.
