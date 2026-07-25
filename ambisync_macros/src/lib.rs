@@ -23,9 +23,9 @@ pub fn ambisync(args: TokenStream, input: TokenStream) -> TokenStream {
         .into()
 }
 
-/// Add a mechanically derived synchronous sibling for every async method in a mixed trait.
+/// Add a mechanically derived synchronous sibling for every async method in a mixed trait or impl.
 ///
-/// Unlike [`ambisync`], this keeps a single trait and leaves its existing synchronous members
+/// Unlike [`ambisync`], this keeps a single item and leaves its existing synchronous members
 /// untouched. See the `ambisync` crate documentation for details.
 #[proc_macro_attribute]
 pub fn paired(args: TokenStream, input: TokenStream) -> TokenStream {

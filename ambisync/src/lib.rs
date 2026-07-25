@@ -118,7 +118,40 @@
 //! The `sync(fns(...))` and `sync(types(...))` tables, `async(feature/flavor/send)`,
 //! `sync(feature)`, and method-level `#[sync_name]`, `#[sync_signature]`, `#[sync_attr]`, and
 //! `#[async_attr]` options work as they do with [`macro@ambisync`]. Item-level renames,
-//! declarations, docs, and attributes do not apply because [`macro@paired`] emits one trait.
+//! declarations, docs, and attributes do not apply because [`macro@paired`] emits one item.
+//!
+//! Implementors of such a trait annotate their impl the same way, since `#[ambisync]` would emit
+//! two impls of the one trait for the same type. Inherent impls are supported too:
+//!
+//! ```
+//! # struct Reader; struct AsyncReader;
+//! # impl Reader { fn get(&self) -> u32 { 1 } }
+//! # impl AsyncReader { async fn get(&self) -> u32 { 1 } }
+//! # #[ambisync::paired(
+//! #     sync(fns("async_{}"), types("Async{}")),
+//! #     async(feature = "async", flavor = async_trait),
+//! # )]
+//! # trait ReadApi: Sync {
+//! #     fn label(&self) -> &'static str { "reader" }
+//! #     async fn async_read(&self, reader: &AsyncReader) -> u32 { reader.get().await }
+//! # }
+//! struct Passthrough;
+//!
+//! #[ambisync::paired(
+//!     sync(fns("async_{}"), types("Async{}")),
+//!     async(feature = "async", flavor = async_trait),
+//! )]
+//! impl ReadApi for Passthrough {
+//!     fn label(&self) -> &'static str { "passthrough" }
+//!
+//!     async fn async_read(&self, reader: &AsyncReader) -> u32 {
+//!         reader.get().await * 2
+//!     }
+//! }
+//! ```
+//!
+//! Because one item is emitted, `types(...)` applies only within the derived sync methods — it
+//! never rewrites the trait name, nor an impl's trait path or self type, which serve both APIs.
 //!
 //! `#[sync_name(name)]` states one method's exact sync name at the method itself, taking precedence over the `fns(...)` table.
 //! It also covers methods that are not `async fn`, which the table never renames: a synchronous method may still carry an async name, for example when it returns an async-capable reader rather than a future.
