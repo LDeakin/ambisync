@@ -558,3 +558,22 @@ async fn fetch_count() -> u32 {
 fn additive_arrow_pattern() {
     assert_eq!(fetch_count_blocking(), 9);
 }
+
+// A closure returning an async block becomes a closure with the block as its body, not a called closure.
+#[ambisync(sync(name = "closure_total"), async(feature = "async"))]
+async fn async_closure_total(values: Vec<u32>) -> u32 {
+    let first = || async { 1u32 };
+    let rest = || async move { values.iter().sum::<u32>() };
+    first().await + rest().await
+}
+
+#[test]
+fn closures_returning_async_blocks() {
+    assert_eq!(closure_total(vec![2, 3]), 6);
+}
+
+#[cfg(feature = "async")]
+#[tokio::test]
+async fn async_closures_returning_async_blocks() {
+    assert_eq!(async_closure_total(vec![2, 3]).await, 6);
+}

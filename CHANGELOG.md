@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Pattern entries no longer rename prose words in doc comments (`types("Async{}")` turned "Asynchronously" into "hronously"); they now apply only inside code spans and link text
+- A closure returning an async block (`|| async { ... }`) is derived as a closure with that block as its body, rather than one calling a closure, which `clippy::redundant_closure_call` rejected
 
 ## [0.1.0](https://github.com/LDeakin/ambisync/releases/tag/v0.1.0) - 2026-07-21
 

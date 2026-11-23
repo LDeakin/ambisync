@@ -340,6 +340,18 @@ impl VisitMut for Rewriter<'_> {
 
             if let Expr::Closure(closure) = expr {
                 closure.asyncness = None;
+                // A closure returning an async block (`|| async { ... }`) becomes a closure with that block as its body,
+                // rather than one calling a closure. The async block's `move` moves its captures into the closure.
+                if let Expr::Async(async_expr) = closure.body.as_mut() {
+                    if async_expr.capture.is_some() {
+                        closure.capture = async_expr.capture;
+                    }
+                    *closure.body = Expr::Block(ExprBlock {
+                        attrs: std::mem::take(&mut async_expr.attrs),
+                        label: None,
+                        block: async_expr.block.clone(),
+                    });
+                }
             }
         }
 

@@ -1451,6 +1451,36 @@ mod tests {
     }
 
     #[test]
+    fn closures_returning_async_blocks_become_plain_closures() {
+        let out = expand(
+            quote! { sync(name = "total"), async(feature = "async") },
+            quote! {
+                async fn async_total(values: Vec<u32>) -> u32 {
+                    let first = || async { 1u32 };
+                    let rest = || async move { values.iter().sum::<u32>() };
+                    let checked = || async {
+                        if false {
+                            return 0u32;
+                        }
+                        2u32
+                    };
+                    first().await + rest().await + checked().await
+                }
+            },
+        );
+        assert!(out.contains("let first = | | { 1u32 } ;"), "{out}");
+        assert!(
+            out.contains("let rest = move | | { values . iter () . sum :: < u32 > () } ;"),
+            "{out}"
+        );
+        assert!(
+            out.contains("let checked = | | { if false { return 0u32 ; } 2u32 } ;"),
+            "{out}"
+        );
+        assert!(out.contains("first () + rest () + checked ()"), "{out}");
+    }
+
+    #[test]
     fn exact_entries_win_over_patterns() {
         let out = expand(
             quote! {

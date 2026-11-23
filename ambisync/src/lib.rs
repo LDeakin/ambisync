@@ -35,7 +35,7 @@
 //!   - `async fn` → `fn`, and every `.await` is stripped.
 //!   - `async { ... }` / `async move { ... }` blocks become immediately invoked closures.
 //!     The transformation preserves the block's `return`/`?` boundary and `move` captures.
-//!   - Async closures become ordinary closures.
+//!   - Async closures become ordinary closures, and a closure returning an async block (`|| async { ... }`) becomes a closure with that block as its body.
 //!   - Names, type references and calls are all mapped through `sync(name = ...)` and the
 //!     `sync(fns(...))` / `sync(types(...))` rename tables.
 //!
