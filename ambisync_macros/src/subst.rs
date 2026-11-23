@@ -282,6 +282,8 @@ impl SubstTable {
 
     /// Substitute the table's spellings inside doc comment text, matching at identifier boundaries just like the code rewrites: `paths` entries (including module-qualified ones) and `calls` renames.
     /// A match must not be preceded by an identifier character or `::` (a longer path), and must not be followed by an identifier character; a trailing `::` is fine, mirroring path prefix substitution (`AsyncStore::new`).
+    ///
+    /// Pattern entries only apply inside code spans and link text (`[`AsyncStore`]`, `[AsyncStore]`), so that prose words such as "Asynchronously" are not mistaken for identifiers matching `types("Async{}")`.
     pub fn rewrite_doc_text(&self, text: &str) -> Option<String> {
         if self.doc_texts.is_empty()
             && self.type_patterns.is_empty()
@@ -293,7 +295,29 @@ impl SubstTable {
         let mut rest = text;
         let mut prev: Option<char> = None;
         let mut changed = false;
+        // The backtick run length opening the current code span, and the depth of link text brackets.
+        let mut code_span: Option<usize> = None;
+        let mut link_depth = 0usize;
         'outer: while !rest.is_empty() {
+            if rest.starts_with('`') {
+                let run = rest.len() - rest.trim_start_matches('`').len();
+                match code_span {
+                    None => code_span = Some(run),
+                    Some(open) if open == run => code_span = None,
+                    Some(_) => {}
+                }
+                out.push_str(&rest[..run]);
+                rest = &rest[run..];
+                prev = Some('`');
+                continue;
+            }
+            if code_span.is_none() {
+                if rest.starts_with('[') {
+                    link_depth += 1;
+                } else if rest.starts_with(']') {
+                    link_depth = link_depth.saturating_sub(1);
+                }
+            }
             let boundary = prev.is_none_or(|c| !is_ident_char(c) && c != ':');
             if boundary {
                 for (from, to) in &self.doc_texts {
@@ -310,13 +334,14 @@ impl SubstTable {
                         continue 'outer;
                     }
                 }
-                // Pattern fallback: match the whole identifier at this position.
+                // Pattern fallback: match the whole identifier at this position, in code-like text only.
+                let code_like = code_span.is_some() || link_depth > 0;
                 let ident_len: usize = rest
                     .chars()
                     .take_while(|c| is_ident_char(*c))
                     .map(char::len_utf8)
                     .sum();
-                if ident_len > 0 {
+                if code_like && ident_len > 0 {
                     let ident = &rest[..ident_len];
                     if let Some(to) = pattern_rename(&self.type_patterns, ident)
                         .or_else(|| pattern_rename(&self.call_patterns, ident))
@@ -440,6 +465,23 @@ mod tests {
         assert_eq!(table.rewrite_doc_text("AsyncStoreExt"), None);
         assert_eq!(table.rewrite_doc_text("MyAsyncStore"), None);
         assert_eq!(table.rewrite_doc_text("other::AsyncStore"), None);
+    }
+
+    #[test]
+    fn doc_text_patterns_only_rename_code_like_text() {
+        let table = SubstTable {
+            type_patterns: vec![
+                crate::config::RenamePattern::parse(syn::parse_quote!("Async{}")).unwrap(),
+            ],
+            ..SubstTable::default()
+        };
+        assert_eq!(
+            table.rewrite_doc_text(
+                "Asynchronously reads [`AsyncStore`], [AsyncStore], ``AsyncStore`` and AsyncStore."
+            ),
+            Some("Asynchronously reads [`Store`], [Store], ``Store`` and AsyncStore.".into())
+        );
+        assert_eq!(table.rewrite_doc_text("Asynchronously."), None);
     }
 
     #[test]

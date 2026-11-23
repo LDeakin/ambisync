@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `#[ambisync::paired]` now supports `#[sync_only]` / `#[async_only]` on async methods
 - Add trusted publishing
 
+### Fixed
+- Pattern entries no longer rename prose words in doc comments (`types("Async{}")` turned "Asynchronously" into "hronously"); they now apply only inside code spans and link text
+
 ## [0.1.0](https://github.com/LDeakin/ambisync/releases/tag/v0.1.0) - 2026-07-21
 
 ### Added

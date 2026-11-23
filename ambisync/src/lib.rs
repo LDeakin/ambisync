@@ -74,7 +74,7 @@
 //!
 //! `types` and `fns` are sync-only because they describe how to rewrite the async-written source; the async expansion uses it verbatim.
 //!
-//! A pattern matches whole identifiers only: a bare type name, the leading segment of a path (`AsyncStore::new`), a fn/method name at its declaration or a call site, or the corresponding doc-text mentions.
+//! A pattern matches whole identifiers only: a bare type name, the leading segment of a path (`AsyncStore::new`), a fn/method name at its declaration or a call site, or the corresponding doc-text mentions inside code spans and link text.
 //! Exact entries always win over patterns; among patterns, the first match wins.
 //! An identity entry (`fns(async_probe => async_probe)`) therefore pins a name that a pattern would otherwise rewrite.
 //!
@@ -350,6 +350,7 @@
 //! Doc text receives the same token-level substitutions as code.
 //! These include the `types(...)` / `fns(...)` tables and item renames, matched at identifier boundaries.
 //! Intra-doc links and prose therefore follow each variant's names: \[`AsyncStore`\] becomes \[`Store`\], \[`mod_x::AsyncThing`\] becomes \[`mod_y::Thing`\], and \[`async_read`\] becomes \[`read`\].
+//! Exact entries apply anywhere in the text, but pattern entries only apply inside code spans and link text, so a prose word such as "Asynchronously" is not renamed by `types("Async{}")`.
 //! Append variant-specific paragraphs with `sync(doc = "...")` / `async(doc = "...")`.
 //! Use `#[sync_attr(...)]` / `#[async_attr(...)]` for attributes that belong to one variant only.
 //! Generic type parameter bounds can likewise diverge without duplicating an item. The source bounds
