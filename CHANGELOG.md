@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `#[ambisync::paired]` now accepts `impl` blocks (trait and inherent) in addition to traits
 - `#[ambisync::paired]` now supports `#[sync_only]` / `#[async_only]` on async methods
 - Add trusted publishing
+- `#[sync_only]` / `#[async_only]` on a generic parameter keep it, and the where-clause predicates bounding it, in one variant only
 
 ### Fixed
 - Pattern entries no longer rename prose words in doc comments (`types("Async{}")` turned "Asynchronously" into "hronously"); they now apply only inside code spans and link text

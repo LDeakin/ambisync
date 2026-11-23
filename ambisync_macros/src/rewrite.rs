@@ -9,8 +9,8 @@ use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 use syn::visit_mut::{self, VisitMut};
 use syn::{
-    Attribute, Block, Expr, ExprBlock, Ident, Lit, LitStr, Macro, Meta, Pat, Path, Stmt, Token,
-    TraitBound, TypeParam, TypeParamBound,
+    Attribute, Block, Expr, ExprBlock, GenericParam, Generics, Ident, Lit, LitStr, Macro, Meta,
+    Pat, Path, Stmt, Token, TraitBound, Type, TypeParam, TypeParamBound, WherePredicate,
 };
 
 use crate::subst::{strip_awaits_in_tokens, SubstTable};
@@ -144,6 +144,58 @@ impl<'a> Rewriter<'a> {
 }
 
 impl VisitMut for Rewriter<'_> {
+    /// Drop generic parameters marked `#[sync_only]` / `#[async_only]` from the other variant, together with the
+    /// where-clause predicates that bound them.
+    fn visit_generics_mut(&mut self, generics: &mut Generics) {
+        let mut dropped_types = Vec::new();
+        let mut dropped_lifetimes = Vec::new();
+        let params = std::mem::take(&mut generics.params);
+        for mut param in params {
+            let attrs = match &mut param {
+                GenericParam::Type(param) => &mut param.attrs,
+                GenericParam::Lifetime(param) => &mut param.attrs,
+                GenericParam::Const(param) => &mut param.attrs,
+            };
+            match take_variant_marker(attrs) {
+                Ok(Some(only)) if only != self.variant => match &param {
+                    GenericParam::Type(param) => dropped_types.push(param.ident.clone()),
+                    GenericParam::Lifetime(param) => dropped_lifetimes.push(param.lifetime.clone()),
+                    GenericParam::Const(_) => {}
+                },
+                Ok(_) => generics.params.push(param),
+                Err(err) => {
+                    self.record_error(err);
+                    generics.params.push(param);
+                }
+            }
+        }
+        if let Some(where_clause) = &mut generics.where_clause {
+            let predicates = std::mem::take(&mut where_clause.predicates);
+            where_clause.predicates = predicates
+                .into_iter()
+                .filter(|predicate| match predicate {
+                    WherePredicate::Type(predicate) => !matches!(
+                        &predicate.bounded_ty,
+                        Type::Path(ty) if ty.qself.is_none()
+                            && dropped_types.iter().any(|ident| ty.path.is_ident(ident))
+                    ),
+                    WherePredicate::Lifetime(predicate) => {
+                        !dropped_lifetimes.contains(&predicate.lifetime)
+                    }
+                    _ => true,
+                })
+                .collect();
+            if where_clause.predicates.is_empty() {
+                generics.where_clause = None;
+            }
+        }
+        if generics.params.is_empty() {
+            generics.lt_token = None;
+            generics.gt_token = None;
+        }
+        visit_mut::visit_generics_mut(self, generics);
+    }
+
     fn visit_type_param_mut(&mut self, param: &mut TypeParam) {
         let mut replacement = None;
         let mut attrs = Vec::with_capacity(param.attrs.len());
@@ -387,6 +439,31 @@ impl VisitMut for Rewriter<'_> {
         mac.tokens = tokens;
         visit_mut::visit_macro_mut(self, mac);
     }
+}
+
+/// Remove a `#[sync_only]` / `#[async_only]` marker from a generic parameter's attributes, returning the variant it is
+/// restricted to.
+fn take_variant_marker(attrs: &mut Vec<Attribute>) -> syn::Result<Option<Variant>> {
+    let mut found = None;
+    let mut result = Ok(());
+    attrs.retain(|attr| {
+        let path = attr.path();
+        let variant = if path.is_ident("sync_only") || is_ambisync_path(path, "sync_only") {
+            Variant::Sync
+        } else if path.is_ident("async_only") || is_ambisync_path(path, "async_only") {
+            Variant::Async
+        } else {
+            return true;
+        };
+        if found.replace(variant).is_some() {
+            result = Err(syn::Error::new_spanned(
+                attr,
+                "duplicate `#[sync_only]` / `#[async_only]` on generic parameter",
+            ));
+        }
+        false
+    });
+    result.map(|()| found)
 }
 
 fn unit_expr(span: Span) -> Expr {

@@ -69,6 +69,7 @@
 //! | `#[sync_name(name)]` | ✓ | — | exact sync name for one trait/impl method, including a non-async method in an async API |
 //! | `#[sync_signature(fn ...)]` | ✓ | — | complete verbatim sync signature for one trait/impl method; the body remains shared |
 //! | `#[sync_bounds(...)]` / `#[async_bounds(...)]` | ✓ | ✓ | replace a generic type parameter's bounds for one variant; an empty list removes all bounds |
+//! | `#[sync_only]` / `#[async_only]` on a generic parameter | ✓ | ✓ | keep a generic parameter (and the where-clause predicates bounding it) in one variant only |
 //! | `flavor = async_fn \| async_trait` | — | ✓ | async trait/impl emission style |
 //! | `send = true \| false \| cfg(...)` | — | ✓ | with `async_trait`: `Send`-ness of the emission (default `Send`) |
 //!
@@ -364,6 +365,25 @@
 //!     let _ = value;
 //! }
 //! # store(String::new());
+//! ```
+//!
+//! A generic parameter that only one variant needs, such as the future type of an async callback, can be marked
+//! `#[async_only]` (or `#[sync_only]`). The other variant drops it together with the where-clause predicates that bound
+//! it; map any remaining mentions with `types(...)`:
+//!
+//! ```
+//! # use std::future::Future;
+//! #[ambisync::ambisync(sync(fns("async_{}"), types(Fut => u32)))]
+//! async fn async_call<F, #[async_only] Fut>(f: F) -> u32
+//! where
+//!     F: Fn() -> Fut,
+//!     Fut: Future<Output = u32>,
+//! {
+//!     f().await
+//! }
+//! // Emits, beside `async_call`:
+//! //   fn call<F>(f: F) -> u32 where F: Fn() -> u32 { f() }
+//! # assert_eq!(call(|| 1), 1);
 //! ```
 //!
 //! # wasm and `Send`
