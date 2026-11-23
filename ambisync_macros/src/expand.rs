@@ -34,6 +34,7 @@ pub fn paired(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream>
     validate_paired_config(&cfg)?;
 
     let item: Item = syn::parse2(input)?;
+    reject_async_trait_expanded(&item)?;
     match item {
         Item::Trait(item_trait) => paired_trait(item_trait, &cfg),
         Item::Impl(item_impl) => paired_impl(item_impl, &cfg),
@@ -506,6 +507,7 @@ fn process_items(items: Vec<Item>, defaults: &Config) -> syn::Result<TokenStream
 
 fn expand_item(item: &Item, cfg: &Config, is_test: bool) -> syn::Result<TokenStream> {
     cfg.validate_effective()?;
+    reject_async_trait_expanded(item)?;
     validate_declaration_kinds(item, cfg)?;
     if !is_test && (cfg.sync.test_attr.is_some() || cfg.async_.test_attr.is_some()) {
         return Err(syn::Error::new_spanned(
@@ -518,6 +520,47 @@ fn expand_item(item: &Item, cfg: &Config, is_test: bool) -> syn::Result<TokenStr
     out.extend(emit_variant(item, cfg, Variant::Sync, is_test)?);
     out.extend(emit_variant(item, cfg, Variant::Async, is_test)?);
     Ok(out)
+}
+
+/// Reject a trait or impl that `#[async_trait]` has already expanded.
+///
+/// Attribute macros expand outermost first, so a hand-written `async_trait` attribute above the ambisync attribute
+/// desugars every `async fn` before ambisync sees them, and no sync methods would be derived. Such methods carry
+/// `async_trait`'s `'async_trait` lifetime.
+fn reject_async_trait_expanded(item: &Item) -> syn::Result<()> {
+    let signatures: Vec<&syn::Signature> = match item {
+        Item::Trait(item_trait) => item_trait
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                TraitItem::Fn(method) => Some(&method.sig),
+                _ => None,
+            })
+            .collect(),
+        Item::Impl(item_impl) => item_impl
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                ImplItem::Fn(method) => Some(&method.sig),
+                _ => None,
+            })
+            .collect(),
+        _ => return Ok(()),
+    };
+    match signatures.into_iter().find(|signature| {
+        signature
+            .generics
+            .lifetimes()
+            .any(|param| param.lifetime.ident == "async_trait")
+    }) {
+        Some(signature) => Err(syn::Error::new_spanned(
+            &signature.ident,
+            "this method was already expanded by `#[async_trait]`, so no sync variant can be derived: \
+             remove the `async_trait` attribute above the ambisync attribute and use \
+             `async(flavor = async_trait)` instead",
+        )),
+        None => Ok(()),
+    }
 }
 
 fn validate_declaration_kinds(item: &Item, cfg: &Config) -> syn::Result<()> {

@@ -391,6 +391,7 @@
 //! # wasm and `Send`
 //!
 //! With `async(flavor = async_trait)`, the `send` option sets the `Send`-ness of the emitted async traits/impls.
+//! Use this instead of a hand-written `async_trait` attribute: one placed above the ambisync attribute expands first and leaves no `async fn` to derive from, which ambisync reports as an error.
 //! Use `send = true` (the default), `send = false` (`?Send`), or `send = cfg(PRED)` (`Send` where the predicate holds and `?Send` elsewhere).
 //! The standard native-`Send` / wasm-`?Send` pairing is:
 //!

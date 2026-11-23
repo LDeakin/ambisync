@@ -1,0 +1,11 @@
+error: this method was already expanded by `#[async_trait]`, so no sync variant can be derived: remove the `async_trait` attribute above the ambisync attribute and use `async(flavor = async_trait)` instead
+ --> tests/ui/fail/async_trait_above.rs:5:14
+  |
+5 |     async fn async_read(&self) -> u32;
+  |              ^^^^^^^^^^
+
+error: this method was already expanded by `#[async_trait]`, so no sync variant can be derived: remove the `async_trait` attribute above the ambisync attribute and use `async(flavor = async_trait)` instead
+  --> tests/ui/fail/async_trait_above.rs:21:14
+   |
+21 |     async fn async_decode(&self) -> u32 {
+   |              ^^^^^^^^^^^^
