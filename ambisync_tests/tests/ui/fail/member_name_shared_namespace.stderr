@@ -1,0 +1,5 @@
+error: cannot derive the sync name of method `fetch`: no `sync(fns(...))` entry or pattern matches it, and its sync sibling shares a namespace with it; add a matching entry (for example `fns(fetch => ...)`) or `#[sync_name(...)]` on the method
+ --> tests/ui/fail/member_name_shared_namespace.rs:6:14
+  |
+6 |     async fn fetch(&self) -> u32 {
+  |              ^^^^^

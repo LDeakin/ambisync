@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add trusted publishing
 - `#[sync_only]` / `#[async_only]` on a generic parameter keep it, and the where-clause predicates bounding it, in one variant only
 
+### Changed
+- Trait and impl methods that no `fns(...)` entry matches keep their names when the sync trait or impl is distinct from the async one, instead of failing to expand
+- Clarify the error for a method whose sync name cannot be derived, suggesting `#[sync_name(...)]`
+
 ### Fixed
 - Pattern entries no longer rename prose words in doc comments (`types("Async{}")` turned "Asynchronously" into "hronously"); they now apply only inside code spans and link text
 

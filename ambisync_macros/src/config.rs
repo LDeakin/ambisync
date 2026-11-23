@@ -752,10 +752,46 @@ impl SyncConfig {
         if let Some(exact) = exact {
             return Ok(exact.clone());
         }
-        if let Some(entry) = self.fns.iter().find(|entry| entry.async_ == *async_ident) {
-            return Ok(entry.sync.clone());
+        match self.sync_fn_ident_from_table(async_ident)? {
+            Some(ident) => Ok(ident),
+            None => Err(underivable_name_error(async_ident, "fns", "\"async_{}\"")),
         }
-        derive_from_patterns(&self.fn_patterns, async_ident, "fns", "\"async_{}\"")
+    }
+
+    /// The sync name of a trait or impl method: the `fns(...)` table, then `fallback`.
+    pub fn sync_member_ident(
+        &self,
+        async_ident: &Ident,
+        fallback: MemberFallback,
+    ) -> syn::Result<Ident> {
+        if let Some(ident) = self.sync_fn_ident_from_table(async_ident)? {
+            return Ok(ident);
+        }
+        match fallback {
+            MemberFallback::Identity => Ok(async_ident.clone()),
+            MemberFallback::Error => Err(syn::Error::new(
+                async_ident.span(),
+                format!(
+                    "cannot derive the sync name of method `{async_ident}`: no `sync(fns(...))` entry or \
+                     pattern matches it, and its sync sibling shares a namespace with it; add a \
+                     matching entry (for example `fns({async_ident} => ...)`) or \
+                     `#[sync_name(...)]` on the method"
+                ),
+            )),
+        }
+    }
+
+    /// The `fns(...)` table's sync name for an async fn name: exact entries first, then patterns in order.
+    fn sync_fn_ident_from_table(&self, async_ident: &Ident) -> syn::Result<Option<Ident>> {
+        if let Some(entry) = self.fns.iter().find(|entry| entry.async_ == *async_ident) {
+            return Ok(Some(entry.sync.clone()));
+        }
+        for pattern in &self.fn_patterns {
+            if let Some(ident) = pattern.sync_name(async_ident)? {
+                return Ok(Some(ident));
+            }
+        }
+        Ok(None)
     }
 
     /// The sync name of a type/trait: the `name` override (if given for this item), then the `types(...)` table — exact bare-ident entries first, then patterns in order.
@@ -801,14 +837,27 @@ fn derive_from_patterns(
             return Ok(ident);
         }
     }
-    Err(syn::Error::new(
+    Err(underivable_name_error(async_ident, which, example))
+}
+
+fn underivable_name_error(async_ident: &Ident, which: &str, example: &str) -> syn::Error {
+    syn::Error::new(
         async_ident.span(),
         format!(
-            "cannot derive the sync name of `{async_ident}`: add a matching `sync({which}(...))` \
-             entry (for example `{which}({example})` or `{which}({async_ident} => ...)`), or \
-             `sync(name = \"...\")` on the item"
+            "cannot derive the sync name of `{async_ident}`: no `sync({which}(...))` entry or \
+             pattern matches it; add one (for example `{which}({example})` or \
+             `{which}({async_ident} => ...)`), or `sync(name = \"...\")` on the item"
         ),
-    ))
+    )
+}
+
+/// How the sync name of a trait or impl method is chosen when no `fns(...)` entry or pattern matches it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum MemberFallback {
+    /// The sync method lives in a different trait or impl than the async one, so it keeps its name.
+    Identity,
+    /// The sync method shares a namespace with the async one, so it needs a distinct name.
+    Error,
 }
 
 pub fn async_ident(configured: Option<&Ident>, source: &Ident) -> Ident {

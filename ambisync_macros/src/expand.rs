@@ -10,7 +10,7 @@ use syn::{
     ItemTrait, LitStr, Meta, Token, TraitItem, Visibility,
 };
 
-use crate::config::{async_ident, Config, Declaration, Flavor, SendPolicy};
+use crate::config::{async_ident, Config, Declaration, Flavor, MemberFallback, SendPolicy};
 use crate::rewrite::{Rewriter, Variant};
 use crate::subst::SubstTable;
 
@@ -188,7 +188,14 @@ where
 {
     let table = if variant.is_sync() {
         let mut table = SubstTable::build(cfg);
-        rewrite_method_signature(source.sig_mut(), &[], cfg, Variant::Sync, &mut table)?;
+        rewrite_method_signature(
+            source.sig_mut(),
+            &[],
+            cfg,
+            Variant::Sync,
+            MemberFallback::Error,
+            &mut table,
+        )?;
         table
     } else {
         SubstTable::default()
@@ -232,7 +239,8 @@ where
     } else if let Some(sync_name) = sync_name {
         sync_name
     } else {
-        cfg.sync.sync_fn_ident(None, &source_name)?
+        cfg.sync
+            .sync_member_ident(&source_name, MemberFallback::Error)?
     };
     ensure_distinct(&sync_name, &source_name)?;
 
@@ -244,6 +252,7 @@ where
         &[(source_name, sync_name)],
         cfg,
         Variant::Sync,
+        MemberFallback::Error,
         &mut table,
     )?;
     let mut sync_method = rewrite(sync_method, Variant::Sync, &table)?;
@@ -652,11 +661,13 @@ fn emit_variant(
             for trait_item in &mut item_trait.items {
                 if let TraitItem::Fn(method) = trait_item {
                     passthrough_attrs(&mut method.attrs, variant)?;
+                    // The sync and async traits are distinct, so their methods cannot clash.
                     rewrite_method_signature(
                         &mut method.sig,
                         &member_sync_names,
                         cfg,
                         variant,
+                        MemberFallback::Identity,
                         &mut table,
                     )?;
                 }
@@ -707,6 +718,11 @@ fn emit_variant(
                     }
                 }
             }
+            let fallback = if variant.is_sync() && impl_namespaces_differ(item_impl, &table) {
+                MemberFallback::Identity
+            } else {
+                MemberFallback::Error
+            };
             for impl_item in &mut item_impl.items {
                 if let ImplItem::Fn(method) = impl_item {
                     passthrough_attrs(&mut method.attrs, variant)?;
@@ -715,6 +731,7 @@ fn emit_variant(
                         &member_sync_names,
                         cfg,
                         variant,
+                        fallback,
                         &mut table,
                     )?;
                 }
@@ -1123,11 +1140,34 @@ fn filter_impl_items(items: &mut Vec<ImplItem>, variant: Variant) {
     });
 }
 
+/// Whether the sync impl derived from `item_impl` implements a different trait or has a different self type than the
+/// async impl, so that methods of the same name in each cannot clash.
+fn impl_namespaces_differ(item_impl: &syn::ItemImpl, table: &SubstTable) -> bool {
+    let mut header = item_impl.clone();
+    header.items.clear();
+    header.attrs.clear();
+    if let Some((trait_path, _)) = &mut header.trait_ {
+        table.subst_path(trait_path, false);
+    }
+    // Errors in the header are reported by the rewrite of the whole item.
+    Rewriter::new(Variant::Sync, table).visit_item_impl_mut(&mut header);
+    let key = |item: &syn::ItemImpl| {
+        (
+            item.trait_
+                .as_ref()
+                .map(|(path, _)| path.to_token_stream().to_string()),
+            item.self_ty.to_token_stream().to_string(),
+        )
+    };
+    key(&header) != key(item_impl)
+}
+
 fn rewrite_method_signature(
     signature: &mut syn::Signature,
     member_sync_names: &[(Ident, Ident)],
     cfg: &Config,
     variant: Variant,
+    fallback: MemberFallback,
     table: &mut SubstTable,
 ) -> syn::Result<()> {
     if !variant.is_sync() {
@@ -1144,7 +1184,7 @@ fn rewrite_method_signature(
         let sync_name = if let Some(sync_name) = explicit_sync_name {
             sync_name
         } else {
-            cfg.sync.sync_fn_ident(None, &source_name)?
+            cfg.sync.sync_member_ident(&source_name, fallback)?
         };
         table.add_auto_call(&source_name, &sync_name);
         signature.ident = sync_name;

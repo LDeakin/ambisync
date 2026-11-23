@@ -84,6 +84,7 @@
 //! `#[ambisync]` applies to `fn`, `trait`, `impl` (inherent and trait impls), `struct`, and `enum`.
 //!
 //! - **Traits**: Rename the trait via `name`/`types(...)` and methods via `fns(...)`.
+//!   Methods that no `fns(...)` entry matches keep their names, as the sync and async traits are distinct.
 //!   Default bodies follow the renames.
 //!   Use `#[sync_name(name)]` for an exact per-method override, including methods that are not themselves `async fn`.
 //!   The async trait gets `#[allow(async_fn_in_trait)]`, or you can use `async(flavor = async_trait)`.
@@ -91,7 +92,8 @@
 //!   Rename methods via `fns(...)`.
 //!   `#[sync_name(name)]` overrides `fns(...)` for one method and rewrites calls to that method.
 //!   Calls between renamed methods follow automatically.
-//!   The identity pattern `fns("{}")` keeps method names unchanged when the sync and async types already provide separate namespaces.
+//!   Methods that no `fns(...)` entry matches keep their names when the sync impl's trait or self type differs from the async impl's, as they cannot clash.
+//!   Otherwise (an inherent impl of the same type for both variants) each async method needs a distinct sync name.
 //! - **Structs / Enums**: The type is renamed and field types are substituted.
 //!
 //! When sync and async entry points must coexist on the same public trait, use
