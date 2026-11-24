@@ -43,3 +43,5 @@ must_use_candidate = "allow"
 unused_self = "allow"
 # Fixtures model runtime APIs, and derived sync functions cannot be `const` in their async-written source.
 missing_const_for_fn = "allow"
+# Fixtures spell out type names to exercise their substitution in the derived sync code.
+use_self = "allow"
