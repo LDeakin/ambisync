@@ -18,3 +18,6 @@ ambisync_macros = { workspace = true }
 [dev-dependencies]
 # For the `async(flavor = async_trait)` doctest.
 async-trait = "0.1"
+
+[lints]
+workspace = true

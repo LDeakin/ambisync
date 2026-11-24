@@ -14,3 +14,7 @@ categories = ["asynchronous", "rust-patterns"]
 
 [workspace.dependencies]
 ambisync_macros = { version = "0.1.1", path = "ambisync_macros" }
+
+[workspace.lints.rust]
+missing_docs = "warn"
+unsafe_code = "forbid"
