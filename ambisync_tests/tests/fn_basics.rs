@@ -127,6 +127,8 @@ impl AsyncStore {
     sync(fns("async_{}"), types(AsyncStore => Store)),
     async(feature = "async"),
 )]
+// The struct literal exercises path substitution, so it is spelled out rather than reusing `a`.
+#[allow(clippy::unnecessary_struct_initialization)]
 async fn async_build_and_read() -> u32 {
     let a = AsyncStore::build();
     let b = AsyncStore { value: a.value };
