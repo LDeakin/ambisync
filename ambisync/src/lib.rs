@@ -68,8 +68,9 @@
 //! | `fns("{}_async", ...)` | ✓ | — | pattern entry: covers every matching fn name (`read_async` → `read`) |
 //! | `#[sync_name(name)]` | ✓ | — | exact sync name for one trait/impl method, including a non-async method in an async API |
 //! | `#[sync_signature(fn ...)]` | ✓ | — | complete verbatim sync signature for one trait/impl method; the body remains shared |
+//! | `#[sync_attr(...)]` / `#[async_attr(...)]` | ✓ | ✓ | apply an attribute to one variant only (on items, members, fields, or enum variants) |
 //! | `#[sync_bounds(...)]` / `#[async_bounds(...)]` | ✓ | ✓ | replace a generic type parameter's bounds for one variant; an empty list removes all bounds |
-//! | `#[sync_only]` / `#[async_only]` on a generic parameter | ✓ | ✓ | keep a generic parameter (and the where-clause predicates bounding it) in one variant only |
+//! | `#[sync_only]` / `#[async_only]` | ✓ | ✓ | keep a struct field, enum variant, trait/impl member (including `#[ambisync::paired]` async methods), or generic parameter (and its where-clause predicates) in one variant only |
 //! | `#[sync_const]` | ✓ | — | make the sync variant of a function or method `const` |
 //! | `flavor = async_fn \| async_trait` | — | ✓ | async trait/impl emission style |
 //! | `send = true \| false \| cfg(...)` | — | ✓ | with `async_trait`: `Send`-ness of the emission (default `Send`) |
@@ -97,9 +98,8 @@
 //!   Otherwise (an inherent impl of the same type for both variants) each async method needs a distinct sync name.
 //! - **Structs / Enums**: The type is renamed and field types are substituted.
 //!
-//! When sync and async entry points must coexist on the same public trait, use
-//! [`macro@paired`] instead. It leaves ordinary trait members alone and emits a synchronous
-//! sibling beside every async method:
+//! When sync and async entry points must coexist on the same trait or impl, use [`macro@paired`] instead.
+//! It leaves ordinary members alone and emits a synchronous sibling beside every async method:
 //!
 //! ```
 //! # struct Reader; struct AsyncReader;
@@ -119,10 +119,8 @@
 //! ```
 //!
 //! This produces `read(&Reader)` and the feature-gated `async_read(&AsyncReader)` in `ReadApi`.
-//! The `sync(fns(...))` and `sync(types(...))` tables, `async(feature/flavor/send)`,
-//! `sync(feature)`, and method-level `#[sync_name]`, `#[sync_signature]`, `#[sync_attr]`, and
-//! `#[async_attr]` options work as they do with [`macro@ambisync`]. Item-level renames,
-//! declarations, docs, and attributes do not apply because [`macro@paired`] emits one item.
+//! The `sync(fns(...))` and `sync(types(...))` tables, `async(feature/flavor/send)`, `sync(feature)`, and method-level `#[sync_name]`, `#[sync_signature]`, `#[sync_const]`, `#[sync_attr]`, and `#[async_attr]` options work as they do with [`macro@ambisync`].
+//! Item-level renames, declarations, docs, and attributes do not apply because [`macro@paired`] emits one item.
 //!
 //! Implementors of such a trait annotate their impl the same way, since `#[ambisync]` would emit
 //! two impls of the one trait for the same type. Inherent impls are supported too:
@@ -234,7 +232,7 @@
 //!
 //! These are real exported macros, so unexpanded code still parses for rust-analyzer/rustfmt; `#[ambisync]` resolves them during expansion, and each arm is only type-checked in its own expansion, so divergent code can use per-variant dependencies (`rayon` iterators in [`sync_only!`], stream combinators in [`async_only!`], ...).
 //!
-//! Struct fields, enum variants, and trait/impl members can be kept in only one expansion with `#[sync_only]` / `#[async_only]`:
+//! Struct fields, enum variants, trait/impl members, and generic parameters can be kept in only one expansion with `#[sync_only]` / `#[async_only]`:
 //!
 //! ```
 //! #[ambisync::ambisync(sync(name = "Options"))]
@@ -356,6 +354,9 @@
 //! Intra-doc links and prose therefore follow each variant's names: \[`AsyncStore`\] becomes \[`Store`\], \[`mod_x::AsyncThing`\] becomes \[`mod_y::Thing`\], and \[`async_read`\] becomes \[`read`\].
 //! Exact entries apply anywhere in the text, but pattern entries only apply inside code spans and link text, so a prose word such as "Asynchronously" is not renamed by `types("Async{}")`.
 //! Append variant-specific paragraphs with `sync(doc = "...")` / `async(doc = "...")`.
+//!
+//! # Attributes, generics, and qualifiers
+//!
 //! Use `#[sync_attr(...)]` / `#[async_attr(...)]` for attributes that belong to one variant only.
 //! Generic type parameter bounds can likewise diverge without duplicating an item. The source bounds
 //! are used unless that variant has an explicit override; an empty override removes all bounds:
@@ -452,14 +453,14 @@
 //!
 //! ## Licence
 //! `ambisync` is licensed under either of
-//!  - the Apache License, Version 2.0 [LICENSE-APACHE](https://docs.rs/crate/ambisync/latest/source/LICENCE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0> or
-//!  - the MIT license [LICENSE-MIT](https://docs.rs/crate/ambisync/latest/source/LICENCE-MIT) or <http://opensource.org/licenses/MIT>, at your option.
+//!  - the Apache License, Version 2.0 [LICENSE-APACHE](https://docs.rs/crate/ambisync/latest/source/LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0> or
+//!  - the MIT license [LICENSE-MIT](https://docs.rs/crate/ambisync/latest/source/LICENSE-MIT) or <http://opensource.org/licenses/MIT>, at your option.
 //!
 //! Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
 
 pub use ambisync_macros::{ambisync, paired, scope, scoped, test};
 
-/// Expression-level variant selector, resolved by `#[ambisync]` during expansion.
+/// Expression-level variant selector, resolved by `#[ambisync]` / `#[ambisync::paired]` during expansion.
 ///
 /// `ambisync::alt!(sync => expr_a, async => expr_b)` becomes `expr_a` in the sync expansion and `expr_b` in the async expansion.
 /// Each arm is only type-checked in its own expansion.
@@ -474,10 +475,10 @@ macro_rules! alt {
 
 /// Sync-only marker.
 ///
-/// - As a statement macro (`ambisync::sync_only! { ... }`) inside an `#[ambisync]` body: the statements are kept only in the sync expansion.
-/// - As an attribute (`#[sync_only]`) on a struct field, enum variant, or trait/impl member of an `#[ambisync]` item: the element is kept only in the sync expansion.
+/// - As a statement macro (`ambisync::sync_only! { ... }`) inside an `#[ambisync]` or `#[ambisync::paired]` body: the statements are kept only in the sync expansion.
+/// - As an attribute (`#[sync_only]`) on a struct field, enum variant, trait/impl member, `#[ambisync::paired]` async method, or generic parameter: the element is kept only in the sync expansion.
 ///
-/// Resolved by `#[ambisync]` during expansion.
+/// Resolved by `#[ambisync]` / `#[ambisync::paired]` during expansion.
 #[macro_export]
 macro_rules! sync_only {
     ($($tt:tt)*) => {
@@ -489,10 +490,10 @@ macro_rules! sync_only {
 
 /// Async-only marker.
 ///
-/// - As a statement macro (`ambisync::async_only! { ... }`) inside an `#[ambisync]` body: the statements are kept only in the async expansion.
-/// - As an attribute (`#[async_only]`) on a struct field, enum variant, or trait/impl member of an `#[ambisync]` item: the element is kept only in the async expansion.
+/// - As a statement macro (`ambisync::async_only! { ... }`) inside an `#[ambisync]` or `#[ambisync::paired]` body: the statements are kept only in the async expansion.
+/// - As an attribute (`#[async_only]`) on a struct field, enum variant, trait/impl member, `#[ambisync::paired]` async method, or generic parameter: the element is kept only in the async expansion.
 ///
-/// Resolved by `#[ambisync]` during expansion.
+/// Resolved by `#[ambisync]` / `#[ambisync::paired]` during expansion.
 #[macro_export]
 macro_rules! async_only {
     ($($tt:tt)*) => {
