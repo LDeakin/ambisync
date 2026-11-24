@@ -32,7 +32,7 @@ pub struct SubstTable {
 
 impl SubstTable {
     pub fn build(cfg: &Config) -> Self {
-        let mut table = SubstTable::default();
+        let mut table = Self::default();
         for entry in &cfg.sync.types {
             table.register_type(&entry.async_, &entry.sync, false);
         }

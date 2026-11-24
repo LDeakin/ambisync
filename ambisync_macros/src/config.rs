@@ -275,7 +275,7 @@ pub struct Config {
 
 impl Parse for Config {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let mut cfg = Config::default();
+        let mut cfg = Self::default();
         while !input.is_empty() {
             // `async(...)` first: `async` is a keyword, not an `Ident`.
             if input.peek(Token![async]) {
@@ -643,7 +643,7 @@ impl Config {
 
     /// Merge an item-level config over shared defaults (from `scope`/`scoped!`).
     /// Item-level values win; substitution tables are concatenated with the item-level entries first (first match wins during rewriting).
-    pub fn merged_over(mut self, defaults: &Config) -> Config {
+    pub fn merged_over(mut self, defaults: &Self) -> Self {
         merge_option(&mut self.sync.gate, defaults.sync.gate.as_ref());
         merge_option(&mut self.sync.name, defaults.sync.name.as_ref());
         merge_option(&mut self.sync.doc, defaults.sync.doc.as_ref());

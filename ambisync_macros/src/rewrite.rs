@@ -24,7 +24,7 @@ pub enum Variant {
 
 impl Variant {
     pub fn is_sync(self) -> bool {
-        self == Variant::Sync
+        self == Self::Sync
     }
 }
 
