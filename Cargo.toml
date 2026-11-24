@@ -18,3 +18,6 @@ ambisync_macros = { version = "0.1.1", path = "ambisync_macros" }
 [workspace.lints.rust]
 missing_docs = "warn"
 unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
