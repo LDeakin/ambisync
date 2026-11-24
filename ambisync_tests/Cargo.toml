@@ -41,3 +41,5 @@ unused_async_trait_impl = "allow"
 must_use_candidate = "allow"
 # Fixture methods model stateful APIs whose results need no state.
 unused_self = "allow"
+# Fixtures model runtime APIs, and derived sync functions cannot be `const` in their async-written source.
+missing_const_for_fn = "allow"
