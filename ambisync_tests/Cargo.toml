@@ -38,3 +38,5 @@ unused_async = "allow"
 unused_async_trait_impl = "allow"
 # Fixture and derived test functions are not an API, so `#[must_use]` would only add noise.
 must_use_candidate = "allow"
+# Fixture methods model stateful APIs whose results need no state.
+unused_self = "allow"
