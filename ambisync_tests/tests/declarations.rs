@@ -7,7 +7,7 @@ use ambisync::ambisync;
 #[ambisync(
     sync(declaration {
         /// Blocking record declaration.
-        #[derive(Debug, PartialEq)]
+        #[derive(Debug, PartialEq, Eq)]
         pub struct DeclaredRecord<T>
         where
             T: Copy,
@@ -17,7 +17,7 @@ use ambisync::ambisync;
         feature = "async",
         declaration {
             /// Async record declaration.
-            #[derive(Debug, PartialEq)]
+            #[derive(Debug, PartialEq, Eq)]
             pub struct AsyncDeclaredRecord<T>
             where
                 T: Copy,
@@ -66,13 +66,13 @@ async fn async_struct_and_inherent_impl_declarations_are_used() {
 
 #[ambisync(
     sync(declaration {
-        #[derive(Debug, PartialEq)]
+        #[derive(Debug, PartialEq, Eq)]
         pub struct DeclaredTuple {}
     }),
     async(
         feature = "async",
         declaration {
-            #[derive(Debug, PartialEq)]
+            #[derive(Debug, PartialEq, Eq)]
             pub struct AsyncDeclaredTuple {}
         },
     ),
@@ -81,13 +81,13 @@ struct InternalTuple(pub u32);
 
 #[ambisync(
     sync(declaration {
-        #[derive(Debug, PartialEq)]
+        #[derive(Debug, PartialEq, Eq)]
         pub struct DeclaredUnit {}
     }),
     async(
         feature = "async",
         declaration {
-            #[derive(Debug, PartialEq)]
+            #[derive(Debug, PartialEq, Eq)]
             pub struct AsyncDeclaredUnit {}
         },
     ),
@@ -110,13 +110,13 @@ fn async_tuple_and_unit_struct_contents_are_preserved() {
 #[ambisync(
     sync(declaration {
         /// Blocking choice declaration.
-        #[derive(Debug, PartialEq)]
+        #[derive(Debug, PartialEq, Eq)]
         pub enum DeclaredChoice {}
     }),
     async(feature = "async"),
 )]
 /// Async choice declaration supplied by the source item itself.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum AsyncDeclaredChoice {
     Value(u32),
     Named { value: u32 },
