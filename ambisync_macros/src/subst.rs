@@ -471,7 +471,7 @@ mod tests {
     fn doc_text_patterns_only_rename_code_like_text() {
         let table = SubstTable {
             type_patterns: vec![
-                crate::config::RenamePattern::parse(syn::parse_quote!("Async{}")).unwrap(),
+                crate::config::RenamePattern::parse(&syn::parse_quote!("Async{}")).unwrap(),
             ],
             ..SubstTable::default()
         };

@@ -68,7 +68,7 @@ pub struct RenamePattern {
 }
 
 impl RenamePattern {
-    pub fn parse(lit: LitStr) -> syn::Result<Self> {
+    pub fn parse(lit: &LitStr) -> syn::Result<Self> {
         let value = lit.value();
         let (async_side, sync_side) = match value.split_once("=>") {
             Some((async_side, sync_side)) if !sync_side.contains("=>") => {
@@ -82,8 +82,8 @@ impl RenamePattern {
             }
             None => (value.trim(), "{}"),
         };
-        let (async_prefix, async_suffix) = split_pattern_side(&lit, async_side)?;
-        let (sync_prefix, sync_suffix) = split_pattern_side(&lit, sync_side)?;
+        let (async_prefix, async_suffix) = split_pattern_side(lit, async_side)?;
+        let (sync_prefix, sync_suffix) = split_pattern_side(lit, sync_side)?;
         Ok(Self {
             async_prefix,
             async_suffix,
@@ -381,7 +381,7 @@ fn parse_async_config(input: ParseStream, cfg: &mut AsyncConfig) -> syn::Result<
             "flavor" => {
                 input.parse::<Token![=]>()?;
                 let flavor: Ident = input.parse()?;
-                let flavor = parse_flavor(flavor)?;
+                let flavor = parse_flavor(&flavor)?;
                 set_once(&mut cfg.flavor, flavor, &key)?;
             }
             "send" => {
@@ -418,7 +418,7 @@ fn parse_subst_entries<T: Parse>(
 ) -> syn::Result<()> {
     while !input.is_empty() {
         if input.peek(LitStr) {
-            patterns.push(RenamePattern::parse(input.parse()?)?);
+            patterns.push(RenamePattern::parse(&input.parse()?)?);
         } else {
             exact.push(input.parse()?);
         }
@@ -577,7 +577,7 @@ fn moved_substitution_error(key: &Ident, option: &str) -> syn::Error {
     )
 }
 
-fn parse_flavor(flavor: Ident) -> syn::Result<Flavor> {
+fn parse_flavor(flavor: &Ident) -> syn::Result<Flavor> {
     match flavor.to_string().as_str() {
         "async_fn" => Ok(Flavor::AsyncFn),
         "async_trait" => Ok(Flavor::AsyncTrait),
@@ -880,7 +880,7 @@ mod tests {
 
     fn sync_name(pattern: &str, async_name: &str) -> Option<String> {
         let pattern =
-            RenamePattern::parse(LitStr::new(pattern, Span::call_site())).expect("valid pattern");
+            RenamePattern::parse(&LitStr::new(pattern, Span::call_site())).expect("valid pattern");
         pattern
             .sync_name(&Ident::new(async_name, Span::call_site()))
             .expect("valid ident")
@@ -995,7 +995,7 @@ mod tests {
         ] {
             let lit = LitStr::new(bad, Span::call_site());
             assert!(
-                RenamePattern::parse(lit).is_err(),
+                RenamePattern::parse(&lit).is_err(),
                 "`{bad}` should be rejected"
             );
         }
