@@ -7,6 +7,7 @@ use proc_macro2::Span;
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
+use syn::token::Brace;
 use syn::visit_mut::{self, VisitMut};
 use syn::{
     Attribute, Block, Expr, ExprBlock, GenericParam, Generics, Ident, Lit, LitStr, Macro, Meta,
@@ -302,7 +303,7 @@ impl VisitMut for Rewriter<'_> {
                                         attrs: Vec::new(),
                                         label: None,
                                         block: Block {
-                                            brace_token: Default::default(),
+                                            brace_token: Brace::default(),
                                             stmts,
                                         },
                                     });
