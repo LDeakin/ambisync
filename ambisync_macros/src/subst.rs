@@ -26,7 +26,7 @@ pub struct SubstTable {
     type_patterns: Vec<RenamePattern>,
     /// Pattern entries from `fns("{}_async")`, consulted for call names after the exact `calls` entries.
     call_patterns: Vec<RenamePattern>,
-    /// Textual spellings of `paths` and `calls` entries, applied to doc comments at identifier boundaries (`[`AsyncStore`]` → `[`Store`]`).
+    /// Textual spellings of `paths` and `calls` entries, applied to doc comments at identifier boundaries (``[`AsyncStore`]`` → ``[`Store`]``).
     doc_texts: Vec<(String, String)>,
 }
 
@@ -283,7 +283,7 @@ impl SubstTable {
     /// Substitute the table's spellings inside doc comment text, matching at identifier boundaries just like the code rewrites: `paths` entries (including module-qualified ones) and `calls` renames.
     /// A match must not be preceded by an identifier character or `::` (a longer path), and must not be followed by an identifier character; a trailing `::` is fine, mirroring path prefix substitution (`AsyncStore::new`).
     ///
-    /// Pattern entries only apply inside code spans and link text (`[`AsyncStore`]`, `[AsyncStore]`), so that prose words such as "Asynchronously" are not mistaken for identifiers matching `types("Async{}")`.
+    /// Pattern entries only apply inside code spans and link text (``[`AsyncStore`]``, `[AsyncStore]`), so that prose words such as "Asynchronously" are not mistaken for identifiers matching `types("Async{}")`.
     pub fn rewrite_doc_text(&self, text: &str) -> Option<String> {
         if self.doc_texts.is_empty()
             && self.type_patterns.is_empty()
