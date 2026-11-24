@@ -97,7 +97,7 @@ pub struct Rewriter<'a> {
 }
 
 impl<'a> Rewriter<'a> {
-    pub fn new(variant: Variant, table: &'a SubstTable) -> Self {
+    pub const fn new(variant: Variant, table: &'a SubstTable) -> Self {
         Self {
             variant,
             table,

@@ -163,7 +163,7 @@ pub enum Declaration {
 }
 
 impl Declaration {
-    pub fn ident(&self) -> Option<&Ident> {
+    pub const fn ident(&self) -> Option<&Ident> {
         match self {
             Self::Fn(declaration) => Some(&declaration.sig.ident),
             Self::Trait(declaration) => Some(&declaration.ident),
@@ -173,7 +173,7 @@ impl Declaration {
         }
     }
 
-    pub fn kind_name(&self) -> &'static str {
+    pub const fn kind_name(&self) -> &'static str {
         match self {
             Self::Fn(_) => "function",
             Self::Trait(_) => "trait",
