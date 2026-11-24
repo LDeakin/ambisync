@@ -70,6 +70,7 @@
 //! | `#[sync_signature(fn ...)]` | ✓ | — | complete verbatim sync signature for one trait/impl method; the body remains shared |
 //! | `#[sync_bounds(...)]` / `#[async_bounds(...)]` | ✓ | ✓ | replace a generic type parameter's bounds for one variant; an empty list removes all bounds |
 //! | `#[sync_only]` / `#[async_only]` on a generic parameter | ✓ | ✓ | keep a generic parameter (and the where-clause predicates bounding it) in one variant only |
+//! | `#[sync_const]` | ✓ | — | make the sync variant of a function or method `const` |
 //! | `flavor = async_fn \| async_trait` | — | ✓ | async trait/impl emission style |
 //! | `send = true \| false \| cfg(...)` | — | ✓ | with `async_trait`: `Send`-ness of the emission (default `Send`) |
 //!
@@ -386,6 +387,21 @@
 //! // Emits, beside `async_call`:
 //! //   fn call<F>(f: F) -> u32 where F: Fn() -> u32 { f() }
 //! # assert_eq!(call(|| 1), 1);
+//! ```
+//!
+//! An `async fn` cannot be `const`, so `#[sync_const]` on a function or method makes only its sync variant `const`.
+//! Other qualifiers (`unsafe`, `extern "C"`) combine with `async`, so write them in the source and both variants keep them:
+//!
+//! ```
+//! #[ambisync::ambisync(sync(fns("async_{}")))]
+//! #[sync_const]
+//! async fn async_answer() -> u32 {
+//!     42
+//! }
+//! // Emits, beside `async_answer`:
+//! //   const fn answer() -> u32 { 42 }
+//! const ANSWER: u32 = answer();
+//! # assert_eq!(ANSWER, 42);
 //! ```
 //!
 //! # wasm and `Send`

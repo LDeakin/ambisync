@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `#[ambisync::paired]` now supports `#[sync_only]` / `#[async_only]` on async methods
 - Add trusted publishing
 - Reject traits and impls already expanded by a hand-written `#[async_trait]` above the ambisync attribute, which silently derived no sync methods
+- `#[sync_const]` makes the sync variant of a function or method `const`, which an `async fn` cannot be
 - `#[sync_only]` / `#[async_only]` on a generic parameter keep it, and the where-clause predicates bounding it, in one variant only
 
 ### Changed

@@ -187,6 +187,16 @@ where
     M: PairedMethod,
     F: Fn(M, Variant, &SubstTable) -> syn::Result<M>,
 {
+    let sync_const = take_sync_const(source.attrs_mut())?;
+    if sync_const && !variant.is_sync() {
+        return Err(syn::Error::new_spanned(
+            source.sig(),
+            "`#[sync_const]` has no effect on an `#[async_only]` method",
+        ));
+    }
+    if sync_const {
+        source.sig_mut().constness = Some(<Token![const]>::default());
+    }
     let table = if variant.is_sync() {
         let mut table = SubstTable::build(cfg);
         rewrite_method_signature(
@@ -227,6 +237,10 @@ where
 {
     let sync_name = take_sync_name(source.attrs_mut())?;
     let sync_signature = take_sync_signature(source.attrs_mut())?;
+    if sync_signature.is_some() {
+        reject_sync_const_with(source.attrs_mut(), "`#[sync_signature(fn ...)]`")?;
+    }
+    let sync_const = take_sync_const(source.attrs_mut())?;
     if sync_name.is_some() && sync_signature.is_some() {
         return Err(syn::Error::new_spanned(
             source.sig(),
@@ -259,6 +273,9 @@ where
     let mut sync_method = rewrite(sync_method, Variant::Sync, &table)?;
     if let Some(signature) = sync_signature {
         *sync_method.sig_mut() = signature;
+    }
+    if sync_const {
+        sync_method.sig_mut().constness = Some(<Token![const]>::default());
     }
     if let Some(feature) = &cfg.sync.gate {
         sync_method
@@ -706,6 +723,10 @@ fn name_fn(
     table: &mut SubstTable,
 ) -> syn::Result<()> {
     passthrough_attrs(&mut func.attrs, variant)?;
+    if cfg.sync.declaration.is_some() {
+        reject_sync_const_with(&func.attrs, "`sync(declaration { ... })`")?;
+    }
+    apply_sync_const(&mut func.attrs, &mut func.sig, variant)?;
     if func.sig.asyncness.is_none() {
         return Err(syn::Error::new_spanned(
             &func.sig,
@@ -762,6 +783,9 @@ fn take_member_overrides<'a>(
     for (attrs, signature) in methods {
         let sync_name = take_sync_name(attrs)?;
         let sync_signature = take_sync_signature(attrs)?;
+        if sync_signature.is_some() {
+            reject_sync_const_with(attrs, "`#[sync_signature(fn ...)]`")?;
+        }
         let source_name = signature.ident.clone();
         let sync_name = match (sync_name, sync_signature) {
             (Some(_), Some(_)) => {
@@ -811,6 +835,7 @@ fn name_trait(
     for trait_item in &mut item_trait.items {
         if let TraitItem::Fn(method) = trait_item {
             passthrough_attrs(&mut method.attrs, variant)?;
+            apply_sync_const(&mut method.attrs, &mut method.sig, variant)?;
             // The sync and async traits are distinct, so their methods cannot clash.
             rewrite_method_signature(
                 &mut method.sig,
@@ -861,6 +886,7 @@ fn name_impl(
     for impl_item in &mut item_impl.items {
         if let ImplItem::Fn(method) = impl_item {
             passthrough_attrs(&mut method.attrs, variant)?;
+            apply_sync_const(&mut method.attrs, &mut method.sig, variant)?;
             rewrite_method_signature(
                 &mut method.sig,
                 &member_sync_names,
@@ -1219,6 +1245,51 @@ fn rewrite_method_signature(
         signature.ident = sync_name;
     }
     Ok(())
+}
+
+/// Remove a `#[sync_const]` marker, returning whether it was present.
+fn take_sync_const(attrs: &mut Vec<Attribute>) -> syn::Result<bool> {
+    let mut found = false;
+    let mut out = Vec::with_capacity(attrs.len());
+    for attr in attrs.drain(..) {
+        let path = attr.path();
+        if path.is_ident("sync_const") || is_ambisync_path(path, "sync_const") {
+            if found {
+                return Err(syn::Error::new_spanned(&attr, "duplicate `#[sync_const]`"));
+            }
+            attr.meta.require_path_only()?;
+            found = true;
+        } else {
+            out.push(attr);
+        }
+    }
+    *attrs = out;
+    Ok(found)
+}
+
+/// Make the sync variant of a function `const` if it carries `#[sync_const]`, removing the marker from either variant.
+fn apply_sync_const(
+    attrs: &mut Vec<Attribute>,
+    signature: &mut syn::Signature,
+    variant: Variant,
+) -> syn::Result<()> {
+    if take_sync_const(attrs)? && variant.is_sync() {
+        signature.constness = Some(<Token![const]>::default());
+    }
+    Ok(())
+}
+
+/// Reject `#[sync_const]` beside a verbatim sync signature or declaration, which states its own `const`.
+fn reject_sync_const_with(attrs: &[Attribute], other: &str) -> syn::Result<()> {
+    let marker = attrs.iter().find(|attr| {
+        attr.path().is_ident("sync_const") || is_ambisync_path(attr.path(), "sync_const")
+    });
+    marker.map_or(Ok(()), |attr| {
+        Err(syn::Error::new_spanned(
+            attr,
+            format!("`#[sync_const]` cannot be combined with {other}; write `const` there instead"),
+        ))
+    })
 }
 
 /// Remove and parse a `#[sync_name(...)]` member-level sync name override.
