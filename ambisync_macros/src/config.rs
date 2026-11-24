@@ -761,10 +761,8 @@ impl SyncConfig {
         if let Some(exact) = exact {
             return Ok(exact.clone());
         }
-        match self.sync_fn_ident_from_table(async_ident)? {
-            Some(ident) => Ok(ident),
-            None => Err(underivable_name_error(async_ident, "fns", "\"async_{}\"")),
-        }
+        self.sync_fn_ident_from_table(async_ident)?
+            .ok_or_else(|| underivable_name_error(async_ident, "fns", "\"async_{}\""))
     }
 
     /// The sync name of a trait or impl method: the `fns(...)` table, then `fallback`.

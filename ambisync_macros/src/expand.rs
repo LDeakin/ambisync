@@ -547,20 +547,20 @@ fn reject_async_trait_expanded(item: &Item) -> syn::Result<()> {
             .collect(),
         _ => return Ok(()),
     };
-    match signatures.into_iter().find(|signature| {
+    let expanded = signatures.into_iter().find(|signature| {
         signature
             .generics
             .lifetimes()
             .any(|param| param.lifetime.ident == "async_trait")
-    }) {
-        Some(signature) => Err(syn::Error::new_spanned(
+    });
+    expanded.map_or(Ok(()), |signature| {
+        Err(syn::Error::new_spanned(
             &signature.ident,
             "this method was already expanded by `#[async_trait]`, so no sync variant can be derived: \
              remove the `async_trait` attribute above the ambisync attribute and use \
              `async(flavor = async_trait)` instead",
-        )),
-        None => Ok(()),
-    }
+        ))
+    })
 }
 
 fn validate_declaration_kinds(item: &Item, cfg: &Config) -> syn::Result<()> {
