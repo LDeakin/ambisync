@@ -31,3 +31,8 @@ trybuild = "1"
 # Not `workspace = true`: test items need no docs.
 [lints.rust]
 unsafe_code = "forbid"
+
+[lints.clippy]
+# Fixtures model async APIs without real I/O, so their async fns need not await.
+unused_async = "allow"
+unused_async_trait_impl = "allow"
