@@ -599,222 +599,24 @@ fn emit_variant(
     is_test: bool,
 ) -> syn::Result<TokenStream> {
     let mut item = source.clone();
-    let mut member_sync_signatures = Vec::new();
     let mut table = if variant.is_sync() {
         SubstTable::build(cfg)
     } else {
         SubstTable::default()
     };
 
-    match &mut item {
+    let member_sync_signatures = match &mut item {
         Item::Fn(func) => {
-            passthrough_attrs(&mut func.attrs, variant)?;
-            if func.sig.asyncness.is_none() {
-                return Err(syn::Error::new_spanned(
-                    &func.sig,
-                    "ambisync functions must be written in async form",
-                ));
-            }
-            let source_name = func.sig.ident.clone();
-            let async_name = cfg.async_.declaration.as_ref().map_or_else(
-                || async_ident(cfg.async_.name.as_ref(), &source_name),
-                |declaration| {
-                    declaration
-                        .ident()
-                        .expect("function declaration has a name")
-                        .clone()
-                },
-            );
-            let sync_name = if let Some(declaration) = &cfg.sync.declaration {
-                declaration
-                    .ident()
-                    .expect("function declaration has a name")
-                    .clone()
-            } else {
-                cfg.sync
-                    .sync_fn_ident(cfg.sync.name.as_ref(), &async_name)?
-            };
-            ensure_distinct(&sync_name, &async_name)?;
-            if variant.is_sync() {
-                func.sig.asyncness = None;
-                table.add_item_call(&source_name, &sync_name);
-                func.sig.ident = sync_name;
-            } else {
-                table.add_item_call(&source_name, &async_name);
-                func.sig.ident = async_name;
-            }
+            name_fn(func, cfg, variant, &mut table)?;
+            Vec::new()
         }
-        Item::Trait(item_trait) => {
-            passthrough_attrs(&mut item_trait.attrs, variant)?;
-            filter_trait_items(&mut item_trait.items, variant);
-            let mut member_sync_names = Vec::new();
-            for trait_item in &mut item_trait.items {
-                if let TraitItem::Fn(method) = trait_item {
-                    let sync_name = take_sync_name(&mut method.attrs)?;
-                    let sync_signature = take_sync_signature(&mut method.attrs)?;
-                    if sync_name.is_some() && sync_signature.is_some() {
-                        return Err(syn::Error::new_spanned(
-                            &method.sig,
-                            "`#[sync_name(...)]` and `#[sync_signature(fn ...)]` cannot be used on the same method",
-                        ));
-                    }
-                    if let Some(sync_signature) = sync_signature {
-                        let source_name = method.sig.ident.clone();
-                        let sync_name = sync_signature.ident.clone();
-                        if variant.is_sync() {
-                            table.add_item_call(&source_name, &sync_name);
-                            member_sync_signatures.push(sync_signature);
-                        }
-                        member_sync_names.push((source_name, sync_name));
-                    } else if let Some(sync_name) = sync_name {
-                        let source_name = method.sig.ident.clone();
-                        if variant.is_sync() {
-                            table.add_item_call(&source_name, &sync_name);
-                        }
-                        member_sync_names.push((source_name, sync_name));
-                    }
-                }
-            }
-            let source_trait_ident = item_trait.ident.clone();
-            let async_trait_ident = cfg.async_.declaration.as_ref().map_or_else(
-                || async_ident(cfg.async_.name.as_ref(), &source_trait_ident),
-                |declaration| {
-                    declaration
-                        .ident()
-                        .expect("trait declaration has a name")
-                        .clone()
-                },
-            );
-            let sync_trait_ident = if let Some(declaration) = &cfg.sync.declaration {
-                declaration
-                    .ident()
-                    .expect("trait declaration has a name")
-                    .clone()
-            } else {
-                cfg.sync
-                    .sync_type_ident(cfg.sync.name.as_ref(), &async_trait_ident)?
-            };
-            ensure_distinct(&sync_trait_ident, &async_trait_ident)?;
-            let output_trait_ident = if variant.is_sync() {
-                &sync_trait_ident
-            } else {
-                &async_trait_ident
-            };
-            table.add_item_type(&source_trait_ident, output_trait_ident);
-            for trait_item in &mut item_trait.items {
-                if let TraitItem::Fn(method) = trait_item {
-                    passthrough_attrs(&mut method.attrs, variant)?;
-                    // The sync and async traits are distinct, so their methods cannot clash.
-                    rewrite_method_signature(
-                        &mut method.sig,
-                        &member_sync_names,
-                        cfg,
-                        variant,
-                        MemberFallback::Identity,
-                        &mut table,
-                    )?;
-                }
-            }
-            item_trait.ident = if variant.is_sync() {
-                sync_trait_ident
-            } else {
-                async_trait_ident
-            };
-        }
-        Item::Impl(item_impl) => {
-            if cfg.sync.name.is_some() || cfg.async_.name.is_some() {
-                return Err(syn::Error::new_spanned(
-                    item_impl,
-                    "`sync(name = ...)` / `async(name = ...)` cannot name an impl block; \
-                     use `sync(types(...))` for its trait/self types and `sync(fns(...))` \
-                     for methods",
-                ));
-            }
-            passthrough_attrs(&mut item_impl.attrs, variant)?;
-            normalize_signature_only_members(&mut item_impl.items);
-            filter_impl_items(&mut item_impl.items, variant);
-            let mut member_sync_names = Vec::new();
-            for impl_item in &mut item_impl.items {
-                if let ImplItem::Fn(method) = impl_item {
-                    let sync_name = take_sync_name(&mut method.attrs)?;
-                    let sync_signature = take_sync_signature(&mut method.attrs)?;
-                    if sync_name.is_some() && sync_signature.is_some() {
-                        return Err(syn::Error::new_spanned(
-                            &method.sig,
-                            "`#[sync_name(...)]` and `#[sync_signature(fn ...)]` cannot be used on the same method",
-                        ));
-                    }
-                    if let Some(sync_signature) = sync_signature {
-                        let source_name = method.sig.ident.clone();
-                        let sync_name = sync_signature.ident.clone();
-                        if variant.is_sync() {
-                            table.add_item_call(&source_name, &sync_name);
-                            member_sync_signatures.push(sync_signature);
-                        }
-                        member_sync_names.push((source_name, sync_name));
-                    } else if let Some(sync_name) = sync_name {
-                        let source_name = method.sig.ident.clone();
-                        if variant.is_sync() {
-                            table.add_item_call(&source_name, &sync_name);
-                        }
-                        member_sync_names.push((source_name, sync_name));
-                    }
-                }
-            }
-            let fallback = if variant.is_sync() && impl_namespaces_differ(item_impl, &table) {
-                MemberFallback::Identity
-            } else {
-                MemberFallback::Error
-            };
-            for impl_item in &mut item_impl.items {
-                if let ImplItem::Fn(method) = impl_item {
-                    passthrough_attrs(&mut method.attrs, variant)?;
-                    rewrite_method_signature(
-                        &mut method.sig,
-                        &member_sync_names,
-                        cfg,
-                        variant,
-                        fallback,
-                        &mut table,
-                    )?;
-                }
-            }
-            if variant.is_sync() {
-                if let Some((trait_path, _)) = &mut item_impl.trait_ {
-                    table.subst_path(trait_path, false);
-                }
-            }
-        }
+        Item::Trait(item_trait) => name_trait(item_trait, cfg, variant, &mut table)?,
+        Item::Impl(item_impl) => name_impl(item_impl, cfg, variant, &mut table)?,
         Item::Struct(item_struct) => {
             passthrough_attrs(&mut item_struct.attrs, variant)?;
             filter_fields(&mut item_struct.fields, variant);
-            let source_name = item_struct.ident.clone();
-            let async_name = cfg.async_.declaration.as_ref().map_or_else(
-                || async_ident(cfg.async_.name.as_ref(), &source_name),
-                |declaration| {
-                    declaration
-                        .ident()
-                        .expect("struct declaration has a name")
-                        .clone()
-                },
-            );
-            let sync_name = if let Some(declaration) = &cfg.sync.declaration {
-                declaration
-                    .ident()
-                    .expect("struct declaration has a name")
-                    .clone()
-            } else {
-                cfg.sync
-                    .sync_type_ident(cfg.sync.name.as_ref(), &async_name)?
-            };
-            ensure_distinct(&sync_name, &async_name)?;
-            let output_name = if variant.is_sync() {
-                &sync_name
-            } else {
-                &async_name
-            };
-            table.add_item_type(&source_name, output_name);
-            item_struct.ident = output_name.clone();
+            name_type_item(&mut item_struct.ident, "struct", cfg, variant, &mut table)?;
+            Vec::new()
         }
         Item::Enum(item_enum) => {
             passthrough_attrs(&mut item_enum.attrs, variant)?;
@@ -830,33 +632,8 @@ fn emit_variant(
                     }
                 })
                 .collect();
-            let source_name = item_enum.ident.clone();
-            let async_name = cfg.async_.declaration.as_ref().map_or_else(
-                || async_ident(cfg.async_.name.as_ref(), &source_name),
-                |declaration| {
-                    declaration
-                        .ident()
-                        .expect("enum declaration has a name")
-                        .clone()
-                },
-            );
-            let sync_name = if let Some(declaration) = &cfg.sync.declaration {
-                declaration
-                    .ident()
-                    .expect("enum declaration has a name")
-                    .clone()
-            } else {
-                cfg.sync
-                    .sync_type_ident(cfg.sync.name.as_ref(), &async_name)?
-            };
-            ensure_distinct(&sync_name, &async_name)?;
-            let output_name = if variant.is_sync() {
-                &sync_name
-            } else {
-                &async_name
-            };
-            table.add_item_type(&source_name, output_name);
-            item_enum.ident = output_name.clone();
+            name_type_item(&mut item_enum.ident, "enum", cfg, variant, &mut table)?;
+            Vec::new()
         }
         other => {
             return Err(syn::Error::new_spanned(
@@ -864,7 +641,7 @@ fn emit_variant(
                 "#[ambisync] supports `fn`, `trait`, `impl`, `struct` and `enum` items",
             ));
         }
-    }
+    };
 
     let mut rewriter = Rewriter::new(variant, &table);
     rewriter.visit_item_mut(&mut item);
@@ -893,6 +670,213 @@ fn emit_variant(
     }
 
     Ok(quote!(#item))
+}
+
+/// The async and sync names of a `kind` item named `source`, from the variant declarations, names and tables.
+fn variant_names(
+    source: &Ident,
+    kind: &str,
+    cfg: &Config,
+    sync_name: impl FnOnce(&Ident) -> syn::Result<Ident>,
+) -> syn::Result<(Ident, Ident)> {
+    let declared = |declaration: &Declaration| {
+        declaration
+            .ident()
+            .unwrap_or_else(|| unreachable!("a {kind} declaration has a name"))
+            .clone()
+    };
+    let async_name = cfg
+        .async_
+        .declaration
+        .as_ref()
+        .map_or_else(|| async_ident(cfg.async_.name.as_ref(), source), declared);
+    let sync_name = match &cfg.sync.declaration {
+        Some(declaration) => declared(declaration),
+        None => sync_name(&async_name)?,
+    };
+    ensure_distinct(&sync_name, &async_name)?;
+    Ok((async_name, sync_name))
+}
+
+/// Name a function for `variant`, registering calls to it.
+fn name_fn(
+    func: &mut syn::ItemFn,
+    cfg: &Config,
+    variant: Variant,
+    table: &mut SubstTable,
+) -> syn::Result<()> {
+    passthrough_attrs(&mut func.attrs, variant)?;
+    if func.sig.asyncness.is_none() {
+        return Err(syn::Error::new_spanned(
+            &func.sig,
+            "ambisync functions must be written in async form",
+        ));
+    }
+    let source_name = func.sig.ident.clone();
+    let (async_name, sync_name) = variant_names(&source_name, "function", cfg, |async_name| {
+        cfg.sync.sync_fn_ident(cfg.sync.name.as_ref(), async_name)
+    })?;
+    let output_name = if variant.is_sync() {
+        func.sig.asyncness = None;
+        sync_name
+    } else {
+        async_name
+    };
+    table.add_item_call(&source_name, &output_name);
+    func.sig.ident = output_name;
+    Ok(())
+}
+
+/// Name a struct, enum or trait for `variant`, registering references to it.
+fn name_type_item(
+    ident: &mut Ident,
+    kind: &str,
+    cfg: &Config,
+    variant: Variant,
+    table: &mut SubstTable,
+) -> syn::Result<()> {
+    let (async_name, sync_name) = variant_names(ident, kind, cfg, |async_name| {
+        cfg.sync.sync_type_ident(cfg.sync.name.as_ref(), async_name)
+    })?;
+    let output_name = if variant.is_sync() {
+        sync_name
+    } else {
+        async_name
+    };
+    table.add_item_type(ident, &output_name);
+    *ident = output_name;
+    Ok(())
+}
+
+/// Take the `#[sync_name(...)]` / `#[sync_signature(fn ...)]` overrides off the methods of a trait or impl.
+///
+/// Returns the source and sync names of each overridden method. For the sync variant, calls to the overridden methods
+/// are registered in `table` and their sync signatures are appended to `sync_signatures`.
+fn take_member_overrides<'a>(
+    methods: impl Iterator<Item = (&'a mut Vec<Attribute>, &'a syn::Signature)>,
+    variant: Variant,
+    table: &mut SubstTable,
+    sync_signatures: &mut Vec<syn::Signature>,
+) -> syn::Result<Vec<(Ident, Ident)>> {
+    let mut member_sync_names = Vec::new();
+    for (attrs, signature) in methods {
+        let sync_name = take_sync_name(attrs)?;
+        let sync_signature = take_sync_signature(attrs)?;
+        let source_name = signature.ident.clone();
+        let sync_name = match (sync_name, sync_signature) {
+            (Some(_), Some(_)) => {
+                return Err(syn::Error::new_spanned(
+                    signature,
+                    "`#[sync_name(...)]` and `#[sync_signature(fn ...)]` cannot be used on the same method",
+                ));
+            }
+            (None, Some(sync_signature)) => {
+                let sync_name = sync_signature.ident.clone();
+                if variant.is_sync() {
+                    sync_signatures.push(sync_signature);
+                }
+                sync_name
+            }
+            (Some(sync_name), None) => sync_name,
+            (None, None) => continue,
+        };
+        if variant.is_sync() {
+            table.add_item_call(&source_name, &sync_name);
+        }
+        member_sync_names.push((source_name, sync_name));
+    }
+    Ok(member_sync_names)
+}
+
+/// Name a trait and its methods for `variant`, returning the sync signatures of its methods.
+fn name_trait(
+    item_trait: &mut ItemTrait,
+    cfg: &Config,
+    variant: Variant,
+    table: &mut SubstTable,
+) -> syn::Result<Vec<syn::Signature>> {
+    passthrough_attrs(&mut item_trait.attrs, variant)?;
+    filter_trait_items(&mut item_trait.items, variant);
+    let mut sync_signatures = Vec::new();
+    let member_sync_names = take_member_overrides(
+        item_trait.items.iter_mut().filter_map(|item| match item {
+            TraitItem::Fn(method) => Some((&mut method.attrs, &method.sig)),
+            _ => None,
+        }),
+        variant,
+        table,
+        &mut sync_signatures,
+    )?;
+    name_type_item(&mut item_trait.ident, "trait", cfg, variant, table)?;
+    for trait_item in &mut item_trait.items {
+        if let TraitItem::Fn(method) = trait_item {
+            passthrough_attrs(&mut method.attrs, variant)?;
+            // The sync and async traits are distinct, so their methods cannot clash.
+            rewrite_method_signature(
+                &mut method.sig,
+                &member_sync_names,
+                cfg,
+                variant,
+                MemberFallback::Identity,
+                table,
+            )?;
+        }
+    }
+    Ok(sync_signatures)
+}
+
+/// Name the methods of an impl for `variant`, returning their sync signatures.
+fn name_impl(
+    item_impl: &mut syn::ItemImpl,
+    cfg: &Config,
+    variant: Variant,
+    table: &mut SubstTable,
+) -> syn::Result<Vec<syn::Signature>> {
+    if cfg.sync.name.is_some() || cfg.async_.name.is_some() {
+        return Err(syn::Error::new_spanned(
+            item_impl,
+            "`sync(name = ...)` / `async(name = ...)` cannot name an impl block; \
+             use `sync(types(...))` for its trait/self types and `sync(fns(...))` \
+             for methods",
+        ));
+    }
+    passthrough_attrs(&mut item_impl.attrs, variant)?;
+    normalize_signature_only_members(&mut item_impl.items);
+    filter_impl_items(&mut item_impl.items, variant);
+    let mut sync_signatures = Vec::new();
+    let member_sync_names = take_member_overrides(
+        item_impl.items.iter_mut().filter_map(|item| match item {
+            ImplItem::Fn(method) => Some((&mut method.attrs, &method.sig)),
+            _ => None,
+        }),
+        variant,
+        table,
+        &mut sync_signatures,
+    )?;
+    let fallback = if variant.is_sync() && impl_namespaces_differ(item_impl, table) {
+        MemberFallback::Identity
+    } else {
+        MemberFallback::Error
+    };
+    for impl_item in &mut item_impl.items {
+        if let ImplItem::Fn(method) = impl_item {
+            passthrough_attrs(&mut method.attrs, variant)?;
+            rewrite_method_signature(
+                &mut method.sig,
+                &member_sync_names,
+                cfg,
+                variant,
+                fallback,
+                table,
+            )?;
+        }
+    }
+    if variant.is_sync() {
+        if let Some((trait_path, _)) = &mut item_impl.trait_ {
+            table.subst_path(trait_path, false);
+        }
+    }
+    Ok(sync_signatures)
 }
 
 fn apply_variant_metadata(
