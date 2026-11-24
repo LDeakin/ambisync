@@ -742,7 +742,7 @@ fn validate_declaration_options(
 
 fn merge_option<T: Clone>(item: &mut Option<T>, default: &Option<T>) {
     if item.is_none() {
-        *item = default.clone();
+        item.clone_from(default);
     }
 }
 

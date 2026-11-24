@@ -44,8 +44,8 @@ impl SubstTable {
                 .doc_texts
                 .push((rename.async_.to_string(), rename.sync.to_string()));
         }
-        table.type_patterns = cfg.sync.type_patterns.clone();
-        table.call_patterns = cfg.sync.fn_patterns.clone();
+        table.type_patterns.clone_from(&cfg.sync.type_patterns);
+        table.call_patterns.clone_from(&cfg.sync.fn_patterns);
         table
     }
 

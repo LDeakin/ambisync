@@ -945,7 +945,7 @@ fn apply_variant_metadata(
 fn apply_declaration(item: &mut Item, declaration: &Declaration) -> syn::Result<()> {
     match (item, declaration) {
         (Item::Fn(item), Declaration::Fn(declaration)) => {
-            item.attrs = declaration.attrs.clone();
+            item.attrs.clone_from(&declaration.attrs);
             item.vis = declaration.vis.clone();
             item.sig = declaration.sig.clone();
         }
