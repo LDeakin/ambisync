@@ -644,11 +644,14 @@ impl Config {
     /// Merge an item-level config over shared defaults (from `scope`/`scoped!`).
     /// Item-level values win; substitution tables are concatenated with the item-level entries first (first match wins during rewriting).
     pub fn merged_over(mut self, defaults: &Config) -> Config {
-        merge_option(&mut self.sync.gate, &defaults.sync.gate);
-        merge_option(&mut self.sync.name, &defaults.sync.name);
-        merge_option(&mut self.sync.doc, &defaults.sync.doc);
-        merge_option(&mut self.sync.test_attr, &defaults.sync.test_attr);
-        merge_option(&mut self.sync.declaration, &defaults.sync.declaration);
+        merge_option(&mut self.sync.gate, defaults.sync.gate.as_ref());
+        merge_option(&mut self.sync.name, defaults.sync.name.as_ref());
+        merge_option(&mut self.sync.doc, defaults.sync.doc.as_ref());
+        merge_option(&mut self.sync.test_attr, defaults.sync.test_attr.as_ref());
+        merge_option(
+            &mut self.sync.declaration,
+            defaults.sync.declaration.as_ref(),
+        );
         self.sync.attrs.extend(defaults.sync.attrs.iter().cloned());
         self.sync.types.extend(defaults.sync.types.iter().cloned());
         self.sync
@@ -658,13 +661,19 @@ impl Config {
         self.sync
             .fn_patterns
             .extend(defaults.sync.fn_patterns.iter().cloned());
-        merge_option(&mut self.async_.gate, &defaults.async_.gate);
-        merge_option(&mut self.async_.name, &defaults.async_.name);
-        merge_option(&mut self.async_.doc, &defaults.async_.doc);
-        merge_option(&mut self.async_.test_attr, &defaults.async_.test_attr);
-        merge_option(&mut self.async_.declaration, &defaults.async_.declaration);
-        merge_option(&mut self.async_.flavor, &defaults.async_.flavor);
-        merge_option(&mut self.async_.send, &defaults.async_.send);
+        merge_option(&mut self.async_.gate, defaults.async_.gate.as_ref());
+        merge_option(&mut self.async_.name, defaults.async_.name.as_ref());
+        merge_option(&mut self.async_.doc, defaults.async_.doc.as_ref());
+        merge_option(
+            &mut self.async_.test_attr,
+            defaults.async_.test_attr.as_ref(),
+        );
+        merge_option(
+            &mut self.async_.declaration,
+            defaults.async_.declaration.as_ref(),
+        );
+        merge_option(&mut self.async_.flavor, defaults.async_.flavor.as_ref());
+        merge_option(&mut self.async_.send, defaults.async_.send.as_ref());
         self.async_
             .attrs
             .extend(defaults.async_.attrs.iter().cloned());
@@ -740,9 +749,9 @@ fn validate_declaration_options(
     Ok(())
 }
 
-fn merge_option<T: Clone>(item: &mut Option<T>, default: &Option<T>) {
+fn merge_option<T: Clone>(item: &mut Option<T>, default: Option<&T>) {
     if item.is_none() {
-        item.clone_from(default);
+        *item = default.cloned();
     }
 }
 
